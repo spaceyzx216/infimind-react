@@ -170,6 +170,7 @@ DEEPSEEK_API_KEY=your_api_key
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-pro
 DEEPSEEK_FLASH_MODEL=deepseek-v4-flash
+JWT_SECRET=replace_with_a_random_32_byte_or_longer_secret
 ```
 
 `.env.local` 已被 Git 忽略，禁止提交真实密钥。
@@ -205,6 +206,10 @@ Vite 会把 `/api` 代理到 `LOCAL_SERVER_PORT`，前后端端口必须保持�
 | `DEEPSEEK_BASE_URL` | 否 | `https://api.deepseek.com` | OpenAI-compatible API 根地址 |
 | `DEEPSEEK_MODEL` | 否 | `deepseek-v4-pro` | 深度思考模式模型 |
 | `DEEPSEEK_FLASH_MODEL` | 否 | `deepseek-v4-flash` | 快速模式模型 |
+| `JWT_SECRET` | 是 | — | 至少 32 字节的随机密钥，用于签发和校验 15 分钟业务 JWT；只能保存在服务端环境变量或 `.env.local` |
+| `JWT_ISSUER` | 否 | `fafee-api` | JWT 签发方校验值 |
+| `JWT_AUDIENCE` | 否 | `fafee-web` | JWT 受众校验值 |
+| `AUTH_ALLOWED_ORIGINS` | 否 | 空 | 生产环境可写刷新 Cookie 的额外浏览器 Origin，逗号分隔 |
 
 ### 可选混合 RAG
 
@@ -271,6 +276,11 @@ npm run evaluate:knowledge-base
 | 方法 | 路径 | 类型 | 说明 |
 | --- | --- | --- | --- |
 | `GET` | `/api/health` | JSON | 服务健康检查 |
+| `POST` | `/api/auth/register` | JSON | 使用一次性邀请码注册用户名、邮箱和密码 |
+| `POST` | `/api/auth/login` | JSON | 使用用户名或邮箱登录，返回 15 分钟 JWT，并写入 7 天 HttpOnly 刷新 Cookie |
+| `POST` | `/api/auth/refresh` | JSON | 使用刷新 Cookie 换取新的 JWT，不延长 7 天绝对期限 |
+| `GET` | `/api/auth/me` | JSON | 使用 `Authorization: Bearer <JWT>` 查询当前登录用户 |
+| `POST` | `/api/auth/logout` | JSON | 撤销刷新令牌并清理 Cookie；已签发 JWT 会在到期前自然失效 |
 | `GET` | `/api/account/balance` | JSON | 从服务端查询当前模型账户余额 |
 | `GET` | `/api/knowledge-base/templates` | JSON | 返回可参与检索的模板元数据，不返回合同正文 |
 | `GET` | `/api/knowledge-base/status` | JSON | 返回文档、条款、风险规则、向量与重排器状态 |
@@ -278,10 +288,12 @@ npm run evaluate:knowledge-base
 | `POST` | `/api/contract-rewrite` | SSE | 上传合同并执行完整审查与修订流水线 |
 | `POST` | `/api/contract-finalize` | SSE | 根据服务端会话中选中的 finding 生成修订稿；当前前端主流程未调用 |
 
+除健康检查和 `/api/auth/*` 外，所有 `/api` 接口都要求有效的 `Authorization: Bearer <JWT>`；未登录返回 `401`。
+`/api/auth/login`、`/api/auth/refresh`、`/api/auth/logout` 还要求 `X-Fafee-Auth: 1`，并拒绝未配置的跨站 Origin，避免浏览器跨站写入刷新 Cookie。
 工作台会为每个浏览器生成稳定的 `X-Client-ID` 请求头，并在请求体中携带
 `threadId`。前端按 `threadId` 隔离加载、阶段和错误状态，因此不同会话可以并行；
-服务端将 ReviewSession 绑定到 `X-Client-ID`，避免不同浏览器意外读取彼此的会话。
-该标识用于运行状态隔离，不替代登录鉴权。
+服务端的 ReviewSession 以真实用户 ID 作为归属校验，`X-Client-ID` 只用于辅助运行状态隔离，
+不替代登录鉴权。
 
 ### `POST /api/contract-rewrite`
 
@@ -317,6 +329,8 @@ npm run evaluate:knowledge-base
 | `npm run preview` | 本地预览生产构建 |
 | `npm run test:consolidation` | 运行问题归并、局部编辑和安全回退回归测试 |
 | `npm run test:concurrency` | 验证不同对话请求状态和不同客户端 ReviewSession 相互隔离 |
+| `npm run test:auth` | 验证邀请码核销、并发注册、密码/刷新令牌保密、JWT、登录恢复和退出 |
+| `npm run invite:create -- --count 5` | 生成 5 个一次性邀请码；明文只在本次命令输出 |
 | `npm run import:templates -- <dir>` | 重建本地知识库，可选同步向量索引 |
 | `npm run evaluate:knowledge-base` | 运行知识库离线检索评测 |
 | `npm run lint` | ESLint 检查；当前仓库尚缺 ESLint 9 flat config，暂不可用 |
@@ -385,12 +399,15 @@ curl https://your-domain.example/api/health
 ## 安全与隐私
 
 - API Key 只保存在服务端 `.env.local`，浏览器不会读取模型密钥；
-- `.env.local`、构建目录、压缩包、SQLite WAL/SHM 和评测报告均已加入 `.gitignore`；
+- `.env.local`、构建目录、压缩包、业务 SQLite 数据库、SQLite WAL/SHM 和评测报告均已加入 `.gitignore`；
+- 密码使用 Node `crypto.scrypt` 加盐哈希；数据库只保存邀请码哈希和刷新令牌哈希，不保存对应明文；
+- 业务请求使用 15 分钟 HS256 JWT；随机刷新令牌只保存在 `HttpOnly`、`SameSite=Lax` Cookie，登录绝对期限为 7 天。JWT 仅在页面内存保存，刷新页面会自动恢复登录；
+- 点击退出会撤销刷新令牌并清空页面凭证，已签发 JWT 不设黑名单、到期前仍可使用；关闭网页不会主动退出；
 - 上传文件由 Multer 保存在内存中，不写入项目目录；
-- ReviewSession 仅保存在当前 Node 进程内存中，默认 2 小时过期；全局最多保留 500 个、每个浏览器客户端最多保留 30 个，并按 `X-Client-ID` 校验归属；
+- ReviewSession 仅保存在当前 Node 进程内存中，默认 2 小时过期；全局最多保留 500 个、每个用户最多保留 30 个，并按真实用户 ID 校验归属；
 - 知识库模板接口只返回元数据，不向浏览器暴露模板正文；
 - 生产环境不应直接暴露 Node 端口，应通过 HTTPS 反向代理访问；
-- 当前前端历史记录使用浏览器 `localStorage`，在共享设备上使用后应清理浏览器数据；
+- 当前前端历史记录使用浏览器 `localStorage`，按用户 ID 和工具 ID 隔离，不提供云端同步；在共享设备上使用后仍应清理浏览器数据；
 - 仓库中的合同素材可能包含业务内容，公开发布前应完成脱敏和授权确认。
 
 ## 已知边界
@@ -415,7 +432,8 @@ curl https://your-domain.example/api/health
 - [x] 第四归并 Agent 与确定性分组回退
 - [x] 局部编号批注、折叠完整条款和 Word 导出
 - [x] 单页多会话并行请求与浏览器级 ReviewSession 隔离
-- [ ] 登录、邀请码与企业权限体系
+- [x] 登录、邀请码与基础访问控制
+- [ ] 企业角色与产品权限体系
 - [ ] 异步任务队列、失败重试、限流与可观测性
 - [ ] 持久化任务中心和合同版本管理
 - [ ] 人工复核、多人协作与标准红线修订导出

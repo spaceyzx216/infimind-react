@@ -1,16 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
-  ArrowLeft,
   Brain,
-  ChevronDown,
   ChevronLeft,
-  CircleDollarSign,
   Copy,
   Download,
-  ExternalLink,
   FileText,
   FolderOpen,
   History,
@@ -20,23 +16,22 @@ import {
   PanelLeft,
   PenLine,
   Plus,
-  RefreshCw,
   Send,
   Trash2,
   X,
   Zap
 } from 'lucide-react'
 import './ContractRewritePage.css'
+import ToolOverviewLink from '../components/ToolOverviewLink'
+import { useAuth } from '../components/AuthProvider'
+import { authFetch } from '../utils/auth-api'
 import { getThreadRequestState, isThreadRequestRunning, patchThreadRequestState } from '../utils/thread-request-state.js'
 
 const REVIEW_ENDPOINT = '/api/contract-rewrite'
 const CHAT_ENDPOINT = '/api/contract-chat'
-const BALANCE_ENDPOINT = '/api/account/balance'
 const ACCEPTED = '.pdf,.doc,.docx,.rtf,.odt,.xls,.xlsx,.ods,.ppt,.pptx,.odp,.txt,.md,.csv,.tsv,.json,.xml,.html,.htm,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,.gif'
 const MAX_FILE_SIZE = 80 * 1024 * 1024
-const THREAD_STORAGE_KEY = 'fafee-contract-threads-v1'
-const TASK_STORAGE_KEY = 'fafee-contract-tasks-v1'
-const CLIENT_STORAGE_KEY = 'fafee-contract-client-id-v1'
+const CLIENT_STORAGE_PREFIX = 'fafee-client-id-v2'
 
 const getExtension = (name = '') => name.toLowerCase().match(/\.[^.]+$/)?.[0] || ''
 const isSupported = (file) => ACCEPTED.includes(getExtension(file.name)) && file.size <= MAX_FILE_SIZE
@@ -128,12 +123,13 @@ const readStorage = (key, fallback, normalize) => {
 const writeStorage = (key, value) => {
   try { window.localStorage.setItem(key, JSON.stringify(value)) } catch { /* 浏览器禁用或存储空间不足时不阻断页面 */ }
 }
-const readOrCreateClientId = () => {
+const readOrCreateClientId = (userId) => {
+  const storageKey = `${CLIENT_STORAGE_PREFIX}:${userId}`
   try {
-    const saved = window.localStorage.getItem(CLIENT_STORAGE_KEY)
+    const saved = window.localStorage.getItem(storageKey)
     if (saved && /^[a-zA-Z0-9_-]{12,128}$/.test(saved)) return saved
     const next = window.crypto?.randomUUID?.() || createId('client')
-    window.localStorage.setItem(CLIENT_STORAGE_KEY, next)
+    window.localStorage.setItem(storageKey, next)
     return next
   } catch {
     return createId('client')
@@ -363,6 +359,8 @@ function ReviewRoundsPanel({ rounds, thinking }) {
 }
 
 function ContractRewritePage() {
+  const navigate = useNavigate()
+  const { user, logout } = useAuth()
   const inputRef = useRef(null)
   const searchRef = useRef(null)
   const threadEndRef = useRef(null)
@@ -371,16 +369,18 @@ function ContractRewritePage() {
   const inFlightThreadsRef = useRef(new Set())
   // 用户是否贴近底部：用于流式输出时决定是否自动跟随滚动
   const stickToBottomRef = useRef(true)
+  const threadStorageKey = `fafee-history-v2:${user.id}:contract-review:threads`
+  const taskStorageKey = `fafee-history-v2:${user.id}:contract-review:tasks`
   const [threads, setThreads] = useState(() => {
-    const saved = readStorage(THREAD_STORAGE_KEY, [], normalizeStoredThreads)
+    const saved = readStorage(threadStorageKey, [], normalizeStoredThreads)
     return saved.length ? saved : [createThread('商业合同审查与批注')]
   })
-  const [tasks, setTasks] = useState(() => readStorage(TASK_STORAGE_KEY, [], normalizeStoredTasks))
+  const [tasks, setTasks] = useState(() => readStorage(taskStorageKey, [], normalizeStoredTasks))
   const [activeThreadId, setActiveThreadId] = useState('')
   const [files, setFiles] = useState([])
   const [instruction, setInstruction] = useState('')
   const [mode, setMode] = useState('thinking')
-  const [clientId] = useState(readOrCreateClientId)
+  const [clientId] = useState(() => readOrCreateClientId(user.id))
   const [threadRequests, setThreadRequests] = useState({})
   const [documentOpen, setDocumentOpen] = useState(false)
   const [documentMessageId, setDocumentMessageId] = useState('')
@@ -389,10 +389,6 @@ function ContractRewritePage() {
   const [taskModalOpen, setTaskModalOpen] = useState(false)
   const [taskTitle, setTaskTitle] = useState('')
   const [taskPrompt, setTaskPrompt] = useState('')
-  const [balanceOpen, setBalanceOpen] = useState(false)
-  const [balanceLoading, setBalanceLoading] = useState(false)
-  const [balanceError, setBalanceError] = useState('')
-  const [balanceData, setBalanceData] = useState(null)
 
   const activeThread = threads.find((thread) => thread.id === activeThreadId) || threads[0]
   const activeMessages = activeThread?.messages || []
@@ -404,7 +400,6 @@ function ContractRewritePage() {
   // 修订稿文档数据：合同原文 + 结构化修订块（三明治视图）。两者均来自后端 rewrite.result 事件。
   const documentContractText = selectedDocument?.contractText || selectedDocument?.originalText || ''
   const documentRevisions = selectedDocument?.revisions || []
-  const cnyBalance = balanceData?.balances?.find((item) => item.currency === 'CNY') || null
   const matchingThreads = useMemo(() => [...threads]
     .sort((left, right) => right.updatedAt - left.updatedAt)
     .filter((thread) => thread.title.toLowerCase().includes(historyQuery.trim().toLowerCase())), [historyQuery, threads])
@@ -415,8 +410,8 @@ function ContractRewritePage() {
 
   useEffect(() => { activeThreadIdRef.current = activeThread?.id || '' }, [activeThread?.id])
 
-  useEffect(() => { writeStorage(THREAD_STORAGE_KEY, threads) }, [threads])
-  useEffect(() => { writeStorage(TASK_STORAGE_KEY, tasks) }, [tasks])
+  useEffect(() => { writeStorage(threadStorageKey, threads) }, [threadStorageKey, threads])
+  useEffect(() => { writeStorage(taskStorageKey, tasks) }, [taskStorageKey, tasks])
 
   // 仅在用户已贴近底部时跟随滚动；流式增量更新时用 instant 避免动画抢夺滚动控制
   useEffect(() => {
@@ -484,25 +479,6 @@ function ContractRewritePage() {
     resetComposer()
     stickToBottomRef.current = true
   }
-  const loadBalance = async () => {
-    setBalanceLoading(true)
-    setBalanceError('')
-    try {
-      const response = await fetch(BALANCE_ENDPOINT, { headers: { Accept: 'application/json' }, cache: 'no-store' })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload.error || '暂时无法读取剩余用量。')
-      setBalanceData(payload)
-    } catch (requestError) {
-      setBalanceError(requestError.message || '暂时无法读取剩余用量。')
-    } finally {
-      setBalanceLoading(false)
-    }
-  }
-  const toggleBalancePanel = () => {
-    const nextOpen = !balanceOpen
-    setBalanceOpen(nextOpen)
-    if (nextOpen) loadBalance()
-  }
   const uploadFiles = (incoming) => {
     const next = incoming.filter(isSupported).slice(0, 6)
     if (activeThread?.id) updateThreadRequest(activeThread.id, {
@@ -560,7 +536,7 @@ function ContractRewritePage() {
         form.append('mode', requestMode)
         form.append('threadId', threadId)
         files.forEach((file) => form.append('files', file))
-        const response = await fetch(REVIEW_ENDPOINT, { method: 'POST', headers: { Accept: 'text/event-stream', 'X-Client-ID': clientId }, body: form })
+        const response = await authFetch(REVIEW_ENDPOINT, { method: 'POST', headers: { Accept: 'text/event-stream', 'X-Client-ID': clientId }, body: form })
         if (!response.ok || !response.body) throw new Error(await response.text() || '审查服务暂不可用。')
         await readSSE(response, (event, data) => {
           if (event === 'stage.start') {
@@ -646,7 +622,7 @@ function ContractRewritePage() {
         }
       } else {
         const history = activeMessages.slice(-10).map((message) => ({ role: message.role, content: message.content })).filter((message) => message.content)
-        const response = await fetch(CHAT_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', 'X-Client-ID': clientId }, body: JSON.stringify({ message: content, mode: requestMode, threadId, history }) })
+        const response = await authFetch(CHAT_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', 'X-Client-ID': clientId }, body: JSON.stringify({ message: content, mode: requestMode, threadId, history }) })
         if (!response.ok || !response.body) throw new Error(await response.text() || '对话服务暂不可用。')
         let answer = ''
         await readSSE(response, (event, data) => {
@@ -773,33 +749,16 @@ function ContractRewritePage() {
       })}</nav>
       {tasks.length > 0 && <><p className="history-label task-label">审查任务</p><nav className="history-list task-list">{tasks.map((task) => <button key={task.id} className={task.threadId === activeThread?.id ? 'selected' : ''} onClick={() => openTask(task)}><FolderOpen size={16} /><span>{task.title}</span><i className="history-delete" title="删除任务" onClick={(event) => deleteTask(event, task.id)}><Trash2 size={14} /></i></button>)}</nav></>}
       <div className="sidebar-footer-wrap">
-        {balanceOpen && <section className="balance-popover" role="dialog" aria-label="剩余用量">
-          <header><span className="footer-avatar">法</span><strong>法飞飞合同助手</strong><button type="button" aria-label="关闭用量面板" onClick={() => setBalanceOpen(false)}><X size={16} /></button></header>
-          <div className="balance-title"><CircleDollarSign size={19} /><strong>剩余用量</strong><button type="button" className="balance-refresh" onClick={loadBalance} disabled={balanceLoading} title="刷新用量"><RefreshCw size={16} className={balanceLoading ? 'spinner' : ''} /></button></div>
-          {balanceLoading && !balanceData && <p className="balance-state"><Loader2 size={15} className="spinner" />正在查询剩余用量…</p>}
-          {balanceError && <p className="balance-error">{balanceError}</p>}
-          {!balanceLoading && !balanceError && balanceData && !cnyBalance && <p className="balance-state">暂未返回人民币用量。</p>}
-          {!balanceError && cnyBalance && <section className="balance-summary">
-            <div className="balance-summary-head"><span>当前剩余用量</span></div>
-            <div className="balance-list">
-              <div className="balance-item">
-                <div><span>人民币</span><b>¥ {cnyBalance.total}</b></div>
-                <p>充值用量 ¥ {cnyBalance.toppedUp} · 赠送用量 ¥ {cnyBalance.granted}</p>
-              </div>
-            </div>
-          </section>}
-          {balanceData && <small className={balanceData.isAvailable ? 'balance-available' : 'balance-unavailable'}>{balanceData.isAvailable ? '当前用量可正常使用' : '当前用量不足，暂不可使用'}</small>}
-          <a className="balance-top-up" href="https://platform.deepseek.com/" target="_blank" rel="noreferrer">充值用量<ExternalLink size={14} /></a>
-        </section>}
-        <button className="sidebar-footer account-trigger" type="button" onClick={toggleBalancePanel} aria-expanded={balanceOpen}>
-          <span className="footer-avatar">法</span><span>法飞飞合同助手</span><ChevronDown size={17} className={balanceOpen ? 'balance-chevron open' : 'balance-chevron'} />
-        </button>
+        <div className="sidebar-footer account-trigger">
+          <span className="footer-avatar">{user.username.slice(0, 1)}</span><span className="account-label"><strong>{user.username}</strong><small>{user.email}</small></span>
+          <button type="button" className="account-logout-button" onClick={async () => { if (await logout()) navigate('/auth?mode=login') }} aria-label="退出登录" title="退出登录"><span>退出</span></button>
+        </div>
       </div>
     </aside>}
 
     <section className="chat-column">
       <header className="chat-header">
-        <div className="header-left">{documentOpen ? <button className="icon-button" aria-label="返回对话" onClick={() => setDocumentOpen(false)}><ChevronLeft size={21} /></button> : <><button className="icon-button sidebar-toggle" aria-label={sidebarCollapsed ? '展开历史对话栏' : '折叠历史对话栏'} title={sidebarCollapsed ? '展开历史对话栏' : '折叠历史对话栏'} onClick={() => setSidebarCollapsed((value) => !value)}><PanelLeft size={21} /></button><Link className="icon-button" aria-label="返回首页" to="/"><ArrowLeft size={20} /></Link></>}</div>
+        <div className="header-left">{documentOpen ? <button className="icon-button" aria-label="返回对话" onClick={() => setDocumentOpen(false)}><ChevronLeft size={21} /></button> : <><button className="icon-button sidebar-toggle" aria-label={sidebarCollapsed ? '展开历史对话栏' : '折叠历史对话栏'} title={sidebarCollapsed ? '展开历史对话栏' : '折叠历史对话栏'} onClick={() => setSidebarCollapsed((value) => !value)}><PanelLeft size={21} /></button><ToolOverviewLink /></>}</div>
         <div className="chat-title"><strong>{activeThread?.title || '商业合同审查助手'}</strong><small>AI 生成内容仅供参考，请结合实际情况判断</small></div>
         <div className="header-tools" />
       </header>

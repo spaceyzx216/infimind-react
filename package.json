@@ -13,6 +13,9 @@
     "evaluate:knowledge-base": "RAG_RERANKER_MODE=heuristic node server/scripts/evaluate-knowledge-base.js",
     "test:consolidation": "node server/scripts/test-finding-consolidation.js",
     "test:concurrency": "node server/scripts/test-concurrency-isolation.js",
+    "test:auth": "node server/scripts/test-auth.js",
+    "test:auth:client": "node server/scripts/test-auth-client.js",
+    "invite:create": "node server/scripts/create-invites.js",
     "test:word-annotations": "node server/scripts/test-word-annotations.js"
   },
   "dependencies": {
@@ -23,6 +26,7 @@
     "express": "^4.19.2",
     "framer-motion": "^12.23.26",
     "jimp": "^1.6.1",
+    "jose": "^6.2.12",
     "jszip": "^3.10.1",
     "lucide-react": "^0.460.0",
     "mammoth": "^1.12.0",
@@ -45,6 +49,7 @@
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
     "eslint-plugin-react-refresh": "^0.4.9",
     "globals": "^15.9.0",
+    "playwright": "^1.63.0",
     "postcss": "^8.5.6",
     "postcss-import": "^16.1.1",
     "postcss-loader": "^8.2.0",

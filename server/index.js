@@ -4,6 +4,10 @@ import dotenv from 'dotenv'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import contractRewriteRouter from './routes/contract-rewrite.js'
+import { createAuthRouter } from './routes/auth.js'
+import { createRequireAuth } from './middleware/auth.js'
+import { createBusinessDatabase } from './services/business-db.js'
+import { createAuthService } from './services/auth-service.js'
 import { initialize, loadTemplates } from './services/knowledge-base.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -15,13 +19,18 @@ const app = express()
 app.use(cors())
 app.use(express.json({ limit: '2mb' }))
 
-// 路由
-app.use('/api', contractRewriteRouter)
-
 // 健康检查
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'contract-rewrite-local', timestamp: new Date().toISOString() })
 })
+
+const businessDatabase = createBusinessDatabase()
+const authService = createAuthService(businessDatabase)
+
+// 认证接口公开；其余 API 在进入业务路由前统一校验 Bearer JWT。
+app.use('/api/auth', createAuthRouter(authService))
+app.use('/api', createRequireAuth(authService))
+app.use('/api', contractRewriteRouter)
 
 // 初始化知识库
 async function bootstrap() {
@@ -38,6 +47,8 @@ async function bootstrap() {
     console.log(`[server] Contract rewrite local engine listening on http://localhost:${PORT}`)
     console.log(`[server] API endpoint: POST http://localhost:${PORT}/api/contract-rewrite`)
   })
+
+  server.on('close', () => businessDatabase.close())
 
   server.on('error', (error) => {
     if (error.code === 'EADDRINUSE') {

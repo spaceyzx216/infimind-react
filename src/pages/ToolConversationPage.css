@@ -1,0 +1,73 @@
+.prototype-chat { min-height: 100vh; display: flex; overflow: hidden; color: #161616; background: #fff; font-family: Inter, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+.prototype-chat-sidebar { width: 286px; flex: 0 0 286px; min-height: 100vh; display: flex; flex-direction: column; padding: 16px; background: #f8f8f9; border-right: 1px solid #ececec; transition: width .2s ease, flex-basis .2s ease, padding .2s ease, opacity .15s ease; }
+.prototype-chat.history-collapsed .prototype-chat-sidebar { width: 0; flex-basis: 0; padding-right: 0; padding-left: 0; overflow: hidden; border-right: 0; opacity: 0; pointer-events: none; }
+.prototype-history-search { min-height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 13px; color: #9a9a9e; background: #ededee; border-radius: 12px; font-size: 14px; }
+.prototype-history-search input { min-width: 0; flex: 1; background: none; border: 0; outline: 0; font: inherit; }
+.prototype-history-search:focus-within { box-shadow: inset 0 0 0 2px #8ea2ba; }
+.prototype-history-search kbd { color: #aaa; font: 11px inherit; }
+.prototype-brand { display: flex; align-items: center; gap: 10px; padding: 23px 13px 16px; }
+.prototype-brand img { width: 27px; height: 27px; object-fit: contain; border-radius: 50%; background: #fff; }
+.prototype-brand strong { font-size: 17px; }
+.prototype-current-tool { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; padding: 10px 12px; color: #555; border-bottom: 1px solid #e6e6e7; text-decoration: none; }
+.prototype-current-tool > span { display: grid; }
+.prototype-current-tool small { color: #aaa; font-size: 10px; }
+.prototype-current-tool strong { color: #333; font-size: 12px; }
+.prototype-new-chat { min-height: 48px; display: flex; align-items: center; gap: 13px; padding: 0 13px; color: #202020; background: transparent; border: 0; border-radius: 10px; font: 500 16px inherit; cursor: pointer; }
+.prototype-new-chat:hover { background: #eee; }
+.prototype-history-label { margin: 25px 13px 10px; color: #a3a3a6; font-size: 13px; }
+.prototype-thread-list { display: grid; gap: 3px; overflow-y: auto; }
+.prototype-thread { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 30px; align-items: center; border-radius: 9px; }
+.prototype-thread > button:first-child { min-width: 0; display: grid; grid-template-columns: 17px 1fr; gap: 10px; align-items: center; padding: 10px 0 10px 12px; color: #444; background: transparent; border: 0; border-radius: 10px; text-align: left; cursor: pointer; }
+.prototype-thread.selected, .prototype-thread:hover { color: #222; background: #fff; }
+.prototype-thread span { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.prototype-thread-delete { width: 26px; height: 26px; display: grid; place-items: center; color: #aaa; background: transparent; border: 0; border-radius: 6px; cursor: pointer; opacity: 0; }
+.prototype-thread:hover .prototype-thread-delete, .prototype-thread.selected .prototype-thread-delete:focus-visible { opacity: 1; }
+.prototype-thread-delete:hover { color: #b42318; background: #fff1f0; }
+.prototype-account { min-height: 66px; display: grid; grid-template-columns: 28px 1fr 18px; gap: 10px; align-items: center; margin-top: auto; padding: 0 16px; border-top: 1px solid #ededed; background: #f0f1f2; border-radius: 16px; }
+.prototype-account > span { width: 28px; height: 28px; display: grid; place-items: center; color: #fff; background: #182a47; border-radius: 50%; font-size: 12px; }
+.prototype-account div { display: grid; }
+.prototype-account strong { font-size: 12px; }
+.prototype-account small { color: #999; font-size: 10px; }
+.prototype-account-logout { width: 28px; height: 28px; display: grid; place-items: center; color: #8f98a4; background: transparent; border: 0; border-radius: 7px; cursor: pointer; }
+.prototype-account-logout:hover { color: #b42318; background: #fff1f0; }
+.prototype-chat-main { position: relative; min-width: 0; flex: 1; height: 100vh; display: flex; flex-direction: column; }
+.prototype-chat-header { height: 76px; flex: 0 0 76px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 30px; border-bottom: 1px solid #ececec; }
+.prototype-header-actions { display: flex; align-items: center; gap: 3px; }
+.prototype-header-actions > button { width: 36px; height: 36px; display: grid; place-items: center; color: #3b4551; background: transparent; border: 0; border-radius: 8px; cursor: pointer; }
+.prototype-header-actions > button:hover { background: #f5f5f6; }
+.prototype-chat-header > div:not(.prototype-header-actions) { text-align: center; }
+.prototype-chat-header strong, .prototype-chat-header small { display: block; }
+.prototype-chat-header strong { font-size: 16px; font-weight: 650; }
+.prototype-chat-header small { margin-top: 4px; color: #bababc; font-size: 11px; }
+.prototype-messages { flex: 1; overflow-y: auto; }
+.prototype-message-inner { width: min(860px, calc(100% - 64px)); margin: 0 auto; padding: 48px 8px 162px; }
+.prototype-assistant-message { max-width: 100%; margin: 0 0 34px; color: #242b35; font-size: 16px; line-height: 1.82; white-space: pre-wrap; }
+.prototype-user-message { width: fit-content; max-width: 75%; margin: 8px 0 26px auto; padding: 12px 16px; color: #333; background: #f3f3f4; border-radius: 15px; font-size: 14px; line-height: 1.7; }
+.prototype-prompts { display: grid; gap: 10px; margin-top: 0; }
+.prototype-prompts button { width: fit-content; display: inline-flex; align-items: center; gap: 18px; padding: 11px 15px; color: #444; background: #f6f6f7; border: 0; border-radius: 13px; font: 14px inherit; cursor: pointer; }
+.prototype-composer-wrap { position: absolute; right: 0; bottom: 0; left: 0; display: flex; justify-content: center; padding: 20px 30px 24px; pointer-events: none; background: linear-gradient(transparent, #fff 28%); }
+.prototype-composer { width: min(860px, 100%); min-height: 118px; padding: 16px 20px 12px; pointer-events: auto; background: #fff; border: 1px solid #e5e5e6; border-radius: 24px; box-shadow: 0 8px 28px rgb(0 0 0 / 10%); }
+.prototype-composer:focus-within { border-color: #9ba4ae; box-shadow: 0 0 0 3px rgb(113 127 143 / 12%), 0 8px 28px rgb(0 0 0 / 10%); }
+.prototype-composer textarea { display: block; width: 100%; min-height: 44px; padding: 0; resize: none; color: #252525; border: 0; outline: 0; font: 16px/1.6 inherit; }
+.prototype-composer textarea::placeholder { color: #b0b0b3; }
+.prototype-composer-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
+.prototype-composer-tools { display: flex; align-items: center; gap: 9px; color: #242426; }
+.prototype-composer-tools > i { width: 1px; height: 22px; background: #e4e4e5; }
+.prototype-add-file, .prototype-mode, .prototype-more { display: inline-flex; align-items: center; gap: 5px; padding: 5px 7px; border-radius: 7px; font-size: 13px; }
+.prototype-add-file { padding: 5px; color: #56565a; }
+.prototype-mode-switch { display: inline-flex; align-items: center; gap: 2px; padding: 3px; background: #f3f3f4; border-radius: 9px; }
+.prototype-mode { color: #777; background: transparent; }
+.prototype-mode.active { color: #222; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / 9%); }
+.prototype-more { color: #242426; }
+.prototype-composer .prototype-send { width: 42px; height: 42px; display: grid; place-items: center; color: #fff; background: #202024; border: 0; border-radius: 50%; cursor: pointer; }
+.prototype-composer .prototype-send:disabled { color: #bbb; background: #f1f1f2; cursor: not-allowed; }
+.prototype-chat button:focus-visible, .prototype-thread > button:first-child:focus-visible { outline: 2px solid #567da8; outline-offset: 2px; }
+
+@media (max-width: 760px) {
+  .prototype-chat-sidebar { display: none; }
+  .prototype-chat-header { height: 64px; flex-basis: 64px; padding: 0 12px; }
+  .prototype-header-actions .tool-overview-link span { display: none; }
+  .prototype-message-inner { width: calc(100% - 30px); padding-top: 28px; }
+  .prototype-composer-wrap { padding: 12px 14px 16px; }
+  .prototype-composer { min-height: 102px; padding: 13px 15px 10px; border-radius: 20px; }
+}

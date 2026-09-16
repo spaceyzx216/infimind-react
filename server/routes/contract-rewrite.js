@@ -268,7 +268,7 @@ router.post('/contract-draft', upload.array('files', 6), async (req, res) => {
 router.post('/contract-finalize', async (req, res) => {
   try {
     const mode = req.body?.mode === 'fast' ? 'fast' : 'thinking'
-    const reviewSession = getReviewSession(req.body?.reviewSessionId, requestClientId(req))
+    const reviewSession = getReviewSession(req.body?.reviewSessionId, req.user.id)
     const selectedFindingIds = Array.isArray(req.body?.selectedFindingIds)
       ? req.body.selectedFindingIds.filter((id) => typeof id === 'string')
       : []
@@ -713,6 +713,7 @@ router.post('/contract-rewrite', upload.array('files', 6), async (req, res) => {
     const consolidatedReviewResult = { ...reviewResult, findings: revisionGroups }
     const reviewReport = renderReviewReport(consolidatedReviewResult)
     const reviewSession = createReviewSession({
+      userId: req.user.id,
       clientId: requestClientId(req),
       contractText: reviewContractText,
       analysisReport: reviewAnalysis,

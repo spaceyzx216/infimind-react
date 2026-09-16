@@ -12,6 +12,7 @@ import {
   FilePenLine
 } from 'lucide-react'
 import './Header.css'
+import { useAuth } from './AuthProvider'
 
 const Header = () => {
   const location = useLocation()
@@ -20,6 +21,7 @@ const Header = () => {
   const [activeDropdown, setActiveDropdown] = useState(null)
   const [pendingScrollTarget, setPendingScrollTarget] = useState(null)
   const [shouldScrollToTop, setShouldScrollToTop] = useState(false)
+  const { user } = useAuth()
 
   const toggleMobileMenu = () => {
     setIsMobileMenuOpen(!isMobileMenuOpen)
@@ -81,6 +83,14 @@ const Header = () => {
     } else {
       scrollToSection(targetId)
     }
+  }
+
+  const handleProductClick = (event, productId) => {
+    event.preventDefault()
+    setIsMobileMenuOpen(false)
+    setActiveDropdown(null)
+    navigate(`/?product=${productId}#products`)
+    setPendingScrollTarget('products')
   }
 
   const handleAboutClick = (e) => {
@@ -207,18 +217,18 @@ const Header = () => {
   }, [location.pathname, location.hash])
 
   const productItems = [
-    { icon: Brain, text: '法飞飞AI-用工风险专家' },
-    { icon: FileText, text: '劳动合同分析' },
-    { icon: Scale, text: '劳动仲裁答辩' },
-    { icon: BookOpen, text: '员工手册诊断' },
-    { icon: Calculator, text: '医疗期计算器' },
-    { icon: Building2, text: '企业职工养老保险测算' },
-    { icon: User, text: '个体工商户或灵活就业者养老保险测算' },
+    { id: 'ai-assistant', icon: Brain, text: '法飞飞AI-用工风险专家' },
+    { id: 'labor-contract', icon: FileText, text: '劳动合同分析' },
+    { id: 'arbitration', icon: Scale, text: '劳动仲裁答辩' },
+    { id: 'handbook', icon: BookOpen, text: '员工手册诊断' },
+    { id: 'medical-calculator', icon: Calculator, text: '医疗期计算器' },
+    { id: 'pension-calc1', icon: Building2, text: '企业职工养老保险测算' },
+    { id: 'pension-calc2', icon: User, text: '灵活就业保险测算' }
   ]
 
-  const contractRewriteItems = [
-    { icon: FileEdit, text: '商业合同审查与批注', to: '/contract-rewrite' },
-    { icon: FilePenLine, text: '商业合同智能起草', to: '/contract-draft' }
+  const contractItems = [
+    { id: 'contract-review', icon: FileEdit, text: '商业合同审查与批注' },
+    { id: 'contract-draft', icon: FilePenLine, text: '商业合同智能起草' }
   ]
 
   return (
@@ -261,9 +271,9 @@ const Header = () => {
                         return (
                           <a 
                             key={index} 
-                            href="#products" 
+                            href={`/?product=${item.id}#products`}
                             className="product-item"
-                            onClick={(e) => handleNavClick(e, 'products')}
+                            onClick={(e) => handleProductClick(e, item.id)}
                           >
                             <div className="product-icon">
                               <IconComponent size={20} />
@@ -277,32 +287,18 @@ const Header = () => {
                   <div className="dropdown-section">
                     <h4>商业合同工具</h4>
                     <div className="product-list">
-                      {contractRewriteItems.map((item, index) => {
+                      {contractItems.map((item) => {
                         const IconComponent = item.icon
                         return (
-                          <Link
-                            key={index}
-                            to={item.to}
-                            className="product-item"
-                            reloadDocument
-                            onClick={() => {
-                              setIsMobileMenuOpen(false)
-                              setActiveDropdown(null)
-                            }}
-                          >
-                            <div className="product-icon">
-                              <IconComponent size={20} />
-                            </div>
+                          <a key={item.id} href={`/?product=${item.id}#products`} className="product-item" onClick={(e) => handleProductClick(e, item.id)}>
+                            <div className="product-icon"><IconComponent size={20} /></div>
                             <span>{item.text}</span>
-                          </Link>
+                          </a>
                         )
                       })}
                     </div>
                   </div>
                 </div>
-              </li>
-              <li className="nav-item">
-                <a className="nav-link" href="#products" onClick={(e) => handleNavClick(e, 'products')}>商业合同模板库</a>
               </li>
               <li className="nav-item">
                 <a className="nav-link" href="#solutions" onClick={(e) => handleNavClick(e, 'solutions')}>行业服务案例</a>
@@ -319,11 +315,14 @@ const Header = () => {
               <li className="nav-item">
                 <a className="nav-link" href="#clients" onClick={(e) => handleNavClick(e, 'clients')}>客户案例</a>
               </li>
+              {user && <li className="nav-item">
+                <Link className="nav-link workspace-entry-link" to="/tools" onClick={() => setIsMobileMenuOpen(false)}>进入工具台</Link>
+              </li>}
             </ul>
           </nav>
           
           <div className="navbar-right">
-            <a className="primary-btn" href="https://jsj.top/f/NctQWw" target="_blank" rel="noopener noreferrer">免费咨询</a>
+            <Link className="auth-nav-link" to="/auth?mode=login">登录 / 注册</Link>
           </div>
           
           <div 

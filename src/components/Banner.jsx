@@ -298,8 +298,8 @@ const Banner = () => {
             <p className="banner-desc">基于海量数据库智能体和人工交付完美解决您的一切用工问题</p>
             <a 
               className="primary-btn" 
-              href="https://jsj.top/f/NctQWw" 
-              target="_blank" 
+              href="https://jsj.top/f/NctQWw"
+              target="_blank"
               rel="noopener noreferrer"
               style={{ 
                 pointerEvents: 'auto', 
