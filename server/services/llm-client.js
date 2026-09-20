@@ -9,6 +9,8 @@ const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY
 const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com'
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro'
 const DEEPSEEK_FLASH_MODEL = process.env.DEEPSEEK_FLASH_MODEL || 'deepseek-v4-flash'
+const REQUEST_TIMEOUT_MS = 60_000
+const STREAM_IDLE_TIMEOUT_MS = 60_000
 
 if (!DEEPSEEK_API_KEY) {
   console.warn('[llm-client] Missing DEEPSEEK_API_KEY environment variable.')
@@ -57,39 +59,131 @@ function resolveThinkingOptions(model, thinking, reasoningEffort) {
   }
 }
 
-async function deepseekFetch(path, body, retries = 3) {
+function describeError(error) {
+  const name = error?.name && error.name !== 'Error' ? `${error.name}: ` : ''
+  const message = error?.message || String(error)
+  const causeCode = error?.cause?.code ? `, cause=${error.cause.code}` : ''
+  const causeMessage = error?.cause?.message && error.cause.message !== message
+    ? `, causeMessage=${error.cause.message}`
+    : ''
+  return `${name}${message}${causeCode}${causeMessage}`
+}
+
+function createLlmError(message, { code = 'LLM_REQUEST_FAILED', retryable = true, cause } = {}) {
+  const error = new Error(message, cause ? { cause } : undefined)
+  error.code = code
+  error.retryable = retryable
+  return error
+}
+
+function abortRequest(controller) {
+  if (controller && !controller.signal.aborted) controller.abort()
+}
+
+function readWithTimeout(reader, controller, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    let timer
+
+    const finish = (callback, value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      callback(value)
+    }
+
+    timer = setTimeout(() => {
+      const error = createLlmError(`流式响应 ${timeoutMs}ms 内没有新数据`, {
+        code: 'LLM_STREAM_TIMEOUT',
+        retryable: true
+      })
+      finish(reject, error)
+      abortRequest(controller)
+      void reader.cancel().catch(() => {})
+    }, timeoutMs)
+
+    reader.read().then(
+      (result) => finish(resolve, result),
+      (error) => finish(reject, error)
+    )
+  })
+}
+
+async function deepseekFetch(path, body, retries = 3, externalSignal) {
   const url = `${DEEPSEEK_BASE_URL}${path}`
 
   for (let attempt = 1; attempt <= retries; attempt++) {
+    if (externalSignal?.aborted) {
+      throw createLlmError('DeepSeek 请求已取消', { code: 'LLM_REQUEST_ABORTED', retryable: false })
+    }
+    const controller = new AbortController()
+    const timeout = setTimeout(() => {
+      abortRequest(controller)
+    }, REQUEST_TIMEOUT_MS)
+    const abortExternal = () => abortRequest(controller)
+    const cleanupExternal = () => externalSignal?.removeEventListener('abort', abortExternal)
+    externalSignal?.addEventListener('abort', abortExternal, { once: true })
+
     try {
       const response = await fetch(url, {
         method: 'POST',
         headers: buildHeaders(),
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal: controller.signal
       })
 
       if (response.status === 429) {
+        clearTimeout(timeout)
+        cleanupExternal()
+        abortRequest(controller)
         const waitMs = Math.min(1000 * Math.pow(2, attempt), 30000)
         console.warn(`[llm-client] Rate limited. Retrying in ${waitMs}ms (attempt ${attempt}/${retries})`)
         await new Promise((r) => setTimeout(r, waitMs))
+        if (externalSignal?.aborted) {
+          throw createLlmError('DeepSeek 请求已取消', { code: 'LLM_REQUEST_ABORTED', retryable: false })
+        }
         continue
       }
 
       if (response.status === 400) {
         const err = await response.json().catch(() => ({}))
-        throw new Error(`Bad request: ${JSON.stringify(err)}`)
+        throw createLlmError(`Bad request: ${JSON.stringify(err)}`, {
+          code: 'LLM_BAD_REQUEST',
+          retryable: false
+        })
       }
 
       if (!response.ok) {
         const errText = await response.text().catch(() => 'unknown error')
-        throw new Error(`API error ${response.status}: ${errText}`)
+        throw createLlmError(`API error ${response.status}: ${errText}`, {
+          code: `LLM_HTTP_${response.status}`,
+          retryable: response.status >= 500
+        })
       }
 
-      return response
+      clearTimeout(timeout)
+      return { response, controller, cleanup: cleanupExternal }
     } catch (err) {
-      if (attempt === retries) throw err
+      clearTimeout(timeout)
+      cleanupExternal()
+      abortRequest(controller)
+      if (externalSignal?.aborted) {
+        throw createLlmError('DeepSeek 请求已取消', {
+          code: 'LLM_REQUEST_ABORTED',
+          retryable: false,
+          cause: err
+        })
+      }
+      const detail = describeError(err)
+      if (attempt === retries || err?.retryable === false) {
+        throw createLlmError(`DeepSeek 请求失败（${attempt}/${retries}）：${detail}`, {
+          code: err?.code || 'LLM_REQUEST_FAILED',
+          retryable: err?.retryable !== false,
+          cause: err
+        })
+      }
       const waitMs = 1000 * attempt
-      console.warn(`[llm-client] Request failed. Retrying in ${waitMs}ms (attempt ${attempt}/${retries})`)
+      console.warn(`[llm-client] Request failed: ${detail}. Retrying in ${waitMs}ms (attempt ${attempt}/${retries})`)
       await new Promise((r) => setTimeout(r, waitMs))
     }
   }
@@ -110,7 +204,8 @@ export async function chat(systemPrompt, userMessage, options = {}) {
     temperature = 0.3,
     maxTokens = 8192,
     thinking,
-    reasoningEffort
+    reasoningEffort,
+    signal
   } = options
 
   const messages = []
@@ -119,24 +214,29 @@ export async function chat(systemPrompt, userMessage, options = {}) {
   }
   messages.push({ role: 'user', content: userMessage })
 
-  const response = await deepseekFetch('/chat/completions', {
+  const { response, controller, cleanup } = await deepseekFetch('/chat/completions', {
     model,
     messages,
     temperature,
     max_tokens: maxTokens,
     ...resolveThinkingOptions(model, thinking, reasoningEffort)
-  })
+  }, 3, signal)
 
-  const data = await response.json()
-  const content = data?.choices?.[0]?.message?.content || ''
+  try {
+    const data = await response.json()
+    const content = data?.choices?.[0]?.message?.content || ''
 
-  if (data?.usage) {
-    console.log(
-      `[llm-client] Tokens: prompt=${data.usage.prompt_tokens}, completion=${data.usage.completion_tokens}, total=${data.usage.total_tokens}`
-    )
+    if (data?.usage) {
+      console.log(
+        `[llm-client] Tokens: prompt=${data.usage.prompt_tokens}, completion=${data.usage.completion_tokens}, total=${data.usage.total_tokens}`
+      )
+    }
+
+    return content
+  } finally {
+    abortRequest(controller)
+    cleanup?.()
   }
-
-  return content
 }
 
 /**
@@ -153,7 +253,8 @@ export async function* streamChat(systemPrompt, userMessage, options = {}) {
     maxTokens = 8192,
     history = [],
     thinking,
-    reasoningEffort
+    reasoningEffort,
+    signal
   } = options
 
   const messages = []
@@ -171,14 +272,23 @@ export async function* streamChat(systemPrompt, userMessage, options = {}) {
   const inputChars = systemPrompt.length + userMessage.length
   console.log(`[llm-client] Starting stream with model: ${model}, input ~${inputChars} chars`)
 
-  const response = await deepseekFetch('/chat/completions', {
+  const { response, controller, cleanup } = await deepseekFetch('/chat/completions', {
     model,
     messages,
     temperature,
     max_tokens: maxTokens,
     stream: true,
     ...resolveThinkingOptions(model, thinking, reasoningEffort)
-  })
+  }, 3, signal)
+
+  if (!response.body) {
+    abortRequest(controller)
+    cleanup?.()
+    throw createLlmError('DeepSeek 响应没有可读取的流式内容', {
+      code: 'LLM_EMPTY_RESPONSE',
+      retryable: false
+    })
+  }
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -190,12 +300,24 @@ export async function* streamChat(systemPrompt, userMessage, options = {}) {
     while (true) {
       let readResult
       try {
-        readResult = await reader.read()
+        readResult = await readWithTimeout(reader, controller, STREAM_IDLE_TIMEOUT_MS)
       } catch (readError) {
-        if (receivedChunks === 0) {
-          throw new Error(`流读取失败（尚未收到任何数据，可能是输入过大或 API 拒绝请求）: ${readError.message}`)
+        if (signal?.aborted) {
+          throw createLlmError('流式请求已取消', { code: 'LLM_REQUEST_ABORTED', retryable: false, cause: readError })
         }
-        throw new Error(`流连接中断（已收到 ${receivedChunks} 个数据块）: ${readError.message}`)
+        if (readError?.code === 'LLM_STREAM_TIMEOUT') throw readError
+        if (receivedChunks === 0) {
+          throw createLlmError(`流读取失败（尚未收到任何数据，可能是输入过大或 API 拒绝请求）: ${describeError(readError)}`, {
+            code: 'LLM_STREAM_READ_FAILED',
+            retryable: true,
+            cause: readError
+          })
+        }
+        throw createLlmError(`流连接中断（已收到 ${receivedChunks} 个数据块）: ${describeError(readError)}`, {
+          code: 'LLM_STREAM_READ_FAILED',
+          retryable: true,
+          cause: readError
+        })
       }
 
       const { done, value } = readResult
@@ -243,6 +365,8 @@ export async function* streamChat(systemPrompt, userMessage, options = {}) {
     }
   } finally {
     reader.releaseLock()
+    abortRequest(controller)
+    cleanup?.()
   }
 }
 

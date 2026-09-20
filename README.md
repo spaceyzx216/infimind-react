@@ -44,8 +44,10 @@
 | 编号就近批注 | 正文浅橙标记、编号和对应修订卡一一关联，完整说明和整条修订默认收起 |
 | 确定性安全回退 | Agent 输出缺失、越界或不合规时，回退到已验证的 finding 与 quote span，不让错误锚点进入页面 |
 | Word 导出 | 导出的 `.doc` 延续页面编号、局部高亮和就近批注结构 |
-| 多会话并行 | 每个对话独立维护请求状态；审查可在后台继续，用户可切换或新建会话同时发起其他请求 |
-| 本地历史记录 | 对话、审查任务和结构化修订结果保存在浏览器本地存储中 |
+| 多会话并行 | 每个对话独立维护请求状态；审查在后台任务中继续执行，用户可切换或新建会话同时发起其他请求 |
+| 生成中停止与插队 | 发送与停止共用同一按钮：空闲发送、生成中空输入停止、生成中已有输入则停止上一轮并立即发送；半截内容标记为未完成并进入下一轮上下文 |
+| 按任务恢复 | 刷新或重新打开历史对话时，按关联的 `taskId` 恢复排队、运行、取消、失败与成功状态，不依赖页面内存 |
+| 本地历史记录 | 对话、审查任务和结构化修订结果保存在浏览器本地存储中，服务端任务结果为权威事实源 |
 
 ## 审查工作流
 
@@ -116,10 +118,12 @@ infimind-react/
 ├── server/
 │   ├── agents/                     # 分析、审查、归并、修订 Agent
 │   ├── prompts/                    # 四个 Agent 的协议化提示词
-│   ├── routes/                     # 合同审查、追问、知识库与账户 API
-│   ├── services/                   # 定位、去重、RAG、会话、解析与修订合并
-│   ├── scripts/                    # 模板导入、知识库评测、归并回归测试
+│   ├── workflows/                  # 任务工作流注册表（contract-review / contract-draft）
+│   ├── routes/                     # 合同审查、起草、任务、知识库与账户 API
+│   ├── services/                   # 定位、去重、RAG、任务、队列、检查点、解析与修订合并
+│   ├── scripts/                    # 模板导入、知识库评测、任务与归并回归测试
 │   ├── knowledge-base/             # SQLite 数据库、索引及文本模板
+│   ├── worker.js                   # 独立任务 Worker 入口
 │   └── index.js                    # Express 服务入口
 ├── docs/                           # 产品、架构和部署文档
 ├── docker-compose.rag.yml          # 可选 Qdrant 服务
@@ -166,6 +170,12 @@ cp .env.example .env.local
 
 ```dotenv
 LOCAL_SERVER_PORT=8789
+# 本地无 Redis 时自动使用 SQLite 持久化队列；配置 REDIS_URL 后使用 BullMQ
+TASK_QUEUE_MODE=auto
+REDIS_URL=
+TASK_RUN_WORKER=true
+TASK_WORKER_CONCURRENCY=1
+TASK_FAKE_LLM=true
 DEEPSEEK_API_KEY=your_api_key
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-pro
@@ -174,6 +184,7 @@ JWT_SECRET=replace_with_a_random_32_byte_or_longer_secret
 ```
 
 `.env.local` 已被 Git 忽略，禁止提交真实密钥。
+本地只验证任务平台而没有模型 Key 时，可把 `TASK_FAKE_LLM=true`；该模式不调用真实模型，仅返回确定性示例结果。
 
 ### 3. 启动前后端
 
@@ -210,6 +221,15 @@ Vite 会把 `/api` 代理到 `LOCAL_SERVER_PORT`，前后端端口必须保持�
 | `JWT_ISSUER` | 否 | `fafee-api` | JWT 签发方校验值 |
 | `JWT_AUDIENCE` | 否 | `fafee-web` | JWT 受众校验值 |
 | `AUTH_ALLOWED_ORIGINS` | 否 | 空 | 生产环境可写刷新 Cookie 的额外浏览器 Origin，逗号分隔 |
+| `TASK_QUEUE_MODE` | 否 | `auto` | `auto` / `local` / `bullmq`；自动模式在有 `REDIS_URL` 时启用 BullMQ |
+| `REDIS_URL` | 否 | 空 | Redis 连接地址，例如 `redis://127.0.0.1:6379`；未配置时使用 SQLite 队列 |
+| `TASK_RUN_WORKER` | 否 | `true` | API 进程是否同时启动 Worker；生产可在 API 进程设为 `false`，单独运行 `npm run worker` |
+| `TASK_WORKER_CONCURRENCY` | 否 | `1` | Worker 并发任务数，需结合模型额度与机器资源提升 |
+| `TASK_MAX_ATTEMPTS` | 否 | `3` | 暂时性上游异常的最大尝试次数 |
+| `TASK_RESULT_RETENTION_DAYS` | 否 | `30` | 结构化任务结果保留天数 |
+| `TASK_FILE_RETENTION_HOURS` | 否 | `24` | 私有临时合同文件的清理时间 |
+| `TASK_UPLOAD_ROOT` | 否 | `系统临时目录/fafee-task-files` | 任务文件私有临时目录；生产建议配置独立私有挂载点 |
+| `TASK_FAKE_LLM` | 否 | `false` | 本地任务平台验收时启用确定性 Fake LLM，不调用真实模型 |
 
 ### 可选混合 RAG
 
@@ -286,6 +306,12 @@ npm run evaluate:knowledge-base
 | `GET` | `/api/knowledge-base/status` | JSON | 返回文档、条款、风险规则、向量与重排器状态 |
 | `POST` | `/api/contract-chat` | SSE | 无附件的合同相关追问对话 |
 | `POST` | `/api/contract-rewrite` | SSE | 上传合同并执行完整审查与修订流水线 |
+| `POST` | `/api/tasks/contract-review` | `202` JSON | 创建商业合同审查异步任务，返回 `taskId` |
+| `POST` | `/api/tasks/contract-draft` | `202` JSON | 创建完整合同起草异步任务，返回 `taskId`；咨询类请求不入队 |
+| `GET` | `/api/tasks` | JSON | 获取当前用户最近任务 |
+| `GET` | `/api/tasks/:taskId` | JSON | 获取任务状态、阶段摘要、结果或失败原因 |
+| `GET` | `/api/tasks/:taskId/events?after=<seq>` | SSE | 回放并持续订阅任务事件；断线后用递增序号补拉 |
+| `POST` | `/api/tasks/:taskId/cancel` | JSON | 取消当前用户的排队或运行中任务 |
 | `POST` | `/api/contract-finalize` | SSE | 根据服务端会话中选中的 finding 生成修订稿；当前前端主流程未调用 |
 
 除健康检查和 `/api/auth/*` 外，所有 `/api` 接口都要求有效的 `Authorization: Bearer <JWT>`；未登录返回 `401`。
@@ -319,17 +345,49 @@ npm run evaluate:knowledge-base
 | `rewrite.result` | 结构化 revisions、localized edits 与统计信息 |
 | `error` / `done` | 失败和流程结束 |
 
+### 商业合同审查任务平台
+
+前端上传合同后使用 `POST /api/tasks/contract-review`，接口只负责鉴权、接收文件并返回任务 ID；合同文件保存到非公开临时目录，Worker 负责执行解析、结构分析、证据检索、多轮审查、归并和修订。任务状态为 `queued`、`running`、`retry_waiting`、`succeeded`、`failed`、`cancel_requested` 或 `cancelled`。
+
+任务事件写入 SQLite 并带递增 `seq`。浏览器可通过 `GET /api/tasks/:taskId/events?after=<seq>` 回放历史事件；刷新或断线后从上次序号继续，不依赖页面内存。阶段成功结果写入检查点，Worker 重启会把未完成任务恢复为可执行状态。
+
+**同对话串行约束**：数据库对 `user_id + thread_id` 上的活动任务（`queued` / `running` / `retry_waiting` / `cancel_requested`）建立部分唯一索引，前端判断只是软约束，重复提交无法绕过。命中时合同审查返回 `409 review_task_conflict`、合同起草返回对应冲突码，前端先取消旧任务再创建同线程新任务。
+
+默认 `TASK_QUEUE_MODE=auto`：配置 `REDIS_URL` 时使用 Redis + BullMQ；没有 Redis 时使用同一 SQLite 数据库中的持久化本地队列，便于开发和 Fake LLM 测试。生产部署建议配置 Redis，并根据模型额度和机器资源调整 Worker 并发。需要拆分 API 与 Worker 时，在 API 进程设置 `TASK_RUN_WORKER=false`，再运行 `npm run worker`。
+
+### 合同起草任务适配
+
+完整合同起草使用 `POST /api/tasks/contract-draft` 接入同一任务、文件、事件、检查点、重试、取消和结果查询底座。请求支持 `multipart/form-data` 或 JSON，主要字段如下：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `threadId` | string | 必填；同一用户同一对话同时只允许一个活动完整起草任务 |
+| `message` | string | 本轮起草或全文更新要求，最多 16,000 字符 |
+| `operation` | `create` \| `regenerate` \| `update` \| `attachment_update` | 可选；缺省时按确定性规则、已有意图分类和澄清顺序判断 |
+| `parentTaskId` | string | 可选；必须是当前用户同一 `threadId` 下已成功保存的合同起草任务 |
+| `currentDraft` | object | 可选；前端缓存的基础草稿快照，成功任务结果才会成为正式草稿 |
+| `history` | JSON array | 可选；必要的对话快照，Worker 不依赖浏览器 `localStorage` |
+| `files` | File[] | 可选；只有明确说明用于起草/全文更新时才进入队列 |
+
+任务输入会持久化到 `tasks.input_json`，包括 `operation`、`threadId`、`parentTaskId`、对话/草稿快照和实际 `fileRefs`。Worker 复用“附件解析 → 合同类型识别 → 合同生成 → 结果整理”链路，阶段检查点为 `parsing`、`contract_type`、`generation` 和 `persistence`。只有完整 Markdown 通过结构校验并由任务事务保存到 SQLite 后，结果才是正式草稿；失败或取消不会替换父任务的成功结果。
+
+`POST /api/contract-draft` 继续保留为兼容 SSE 接口：完整起草仍返回原有流式事件，条款解释、风险咨询、普通追问和未明确附件用途的请求不创建异步任务。前端起草页面继续使用该 SSE 即时体验，尚未切换到任务订阅。
+
 ## 开发命令
 
 | 命令 | 说明 |
 | --- | --- |
 | `npm run dev` | 启动 Vite 开发服务器 |
 | `npm run server` | 启动 Express API |
+| `npm run worker` | 启动独立任务 Worker；生产需与 API 共享 SQLite/PostgreSQL 和 Redis 配置 |
 | `npm run build` | 生成生产前端到 `dist/` |
 | `npm run preview` | 本地预览生产构建 |
 | `npm run test:consolidation` | 运行问题归并、局部编辑和安全回退回归测试 |
 | `npm run test:concurrency` | 验证不同对话请求状态和不同客户端 ReviewSession 相互隔离 |
 | `npm run test:auth` | 验证邀请码核销、并发注册、密码/刷新令牌保密、JWT、登录恢复和退出 |
+| `npm run test:tasks` | 验证异步任务创建、事件回放、检查点、Fake LLM、越权、取消和重试 |
+| `npm run test:interrupt` | 验证同对话任务串行约束、插队取消边界、迟到事件不覆盖结果、按 `taskId` 恢复与越权保护 |
+| `npm run test:contract-draft` | 验证合同起草任务适配、意图分流、草稿快照、恢复、重试、取消和兼容 SSE |
 | `npm run invite:create -- --count 5` | 生成 5 个一次性邀请码；明文只在本次命令输出 |
 | `npm run import:templates -- <dir>` | 重建本地知识库，可选同步向量索引 |
 | `npm run evaluate:knowledge-base` | 运行知识库离线检索评测 |
@@ -339,6 +397,8 @@ npm run evaluate:knowledge-base
 
 ```bash
 npm run test:consolidation
+npm run test:tasks
+npm run test:interrupt
 npm run build
 node --check server/routes/contract-rewrite.js
 node --check server/services/revision-merger.js
@@ -412,8 +472,9 @@ curl https://your-domain.example/api/health
 
 ## 已知边界
 
-- 同一浏览器标签页支持不同会话并行请求，同一会话仍保持单请求顺序，避免上下文和回复次序互相穿插；
-- 当前是单进程原型：ReviewSession 不跨进程共享；`X-Client-ID` 只能防止意外串会话，不能替代登录鉴权，尚未接入任务队列、持久化任务中心和生产级并发限流；
+- 同一浏览器标签页支持不同会话并行请求，同一会话保持单请求顺序：生成中可停止或直接插队发送新消息，被中断的半截内容会标记为未完成并作为下一轮上下文，旧请求迟到的事件不会覆盖新回复；
+- 异步任务入口已收敛进对话：左侧只保留历史对话，刷新或重新打开对话时按 `taskId` 恢复任务状态与结果，`GET /api/tasks` 仍作为服务端通用查询能力保留；
+- 当前是单进程原型：ReviewSession 不跨进程共享；`X-Client-ID` 只能防止意外串会话，不能替代登录鉴权。异步任务已接入 Redis + BullMQ 队列、阶段检查点、事件回放与 Worker 重启恢复，但尚未接入生产级并发限流与多实例部署；
 - 多用户同时请求不会共享审查链路中的局部状态，但仍共用模型账户余额、上游 API 速率额度、服务器 CPU 和内存；高并发生产环境应增加用户鉴权、配额、队列或限流；
 - 审查依赖外部模型 API 的可用性、上下文限制和输出稳定性；服务端已提供解析恢复、分批补全与确定性回退，但不能替代人工复核；
 - 图片 OCR 依赖 `chi_sim` 语言数据，首次运行可能需要下载模型；
@@ -433,10 +494,13 @@ curl https://your-domain.example/api/health
 - [x] 局部编号批注、折叠完整条款和 Word 导出
 - [x] 单页多会话并行请求与浏览器级 ReviewSession 隔离
 - [x] 登录、邀请码与基础访问控制
+- [x] 异步任务队列（Redis + BullMQ / SQLite 降级）、阶段检查点、失败重试与事件回放
+- [x] 合同审查与合同起草统一任务底座、`productId` 工作流注册表
+- [x] 生成中停止与插队发送、按 `taskId` 恢复历史对话
 - [ ] 企业角色与产品权限体系
-- [ ] 异步任务队列、失败重试、限流与可观测性
-- [ ] 持久化任务中心和合同版本管理
-- [ ] 人工复核、多人协作与标准红线修订导出
+- [ ] 生产级可观测性、并发限流与多实例部署
+- [ ] 独立任务中心与合同版本管理
+- [ ] 契约式修订导出（标准红线格式）
 - [ ] 完整自动化测试与 CI/CD 质量门禁
 
 ## 贡献与维护

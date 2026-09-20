@@ -14,6 +14,7 @@ import { rewriteContract } from '../agents/contract-rewriter.js'
 import { chat, streamChat, getFlashModel, getProModel, getUserBalance } from '../services/llm-client.js'
 import { buildContractDraftSystemPrompt, buildContractDraftUserMessage } from '../prompts/contract-draft.js'
 import { CONTRACT_TYPE_CLASSIFIER_SYSTEM_PROMPT, buildContractTypeClassifierMessage, guessContractType, parseContractTypeClassification } from '../prompts/contract-draft-types.js'
+import { DRAFT_INTENT_CLARIFICATION, buildFakeChatReply, buildFakeDraft, extractDraftMeta, resolveDraftIntent } from '../workflows/contract-draft.js'
 
 const router = Router()
 
@@ -103,53 +104,20 @@ const MODELS = {
 
 const resolveModel = (mode) => (MODELS[mode] || MODELS.thinking)()
 
-const extractDraftMeta = (markdown = '') => {
-  const title = markdown.match(/^#\s+([^\n#]+)\s*$/m)?.[1]?.trim() || '合同草稿'
-  const pendingHeading = markdown.match(/^##\s+待确认信息\s*$/m)
-  const pendingSection = pendingHeading?.index === undefined
-    ? ''
-    : markdown.slice(pendingHeading.index + pendingHeading[0].length).split(/^##\s+/m)[0]
-  const pendingItems = pendingSection
-    ? [...pendingSection.matchAll(/^\s*[-*]\s*(?:\[[ xX]\]\s*)?(.+?)\s*$/gm)].map((item) => item[1].trim()).filter(Boolean).slice(0, 8)
-    : []
-  return { title, pendingItems }
-}
-
-const DRAFT_ACTION_CLASSIFIER_SYSTEM_PROMPT = `你是合同起草对话的意图路由器。用户已经拥有一份合同草稿。判断他本轮是否要求生成一份新的、重写后的或根据新增信息修订后的完整合同文档。\n\n仅返回 JSON：{"action":"draft"} 或 {"action":"chat"}。\n\n选择 draft：明确要求起草、生成、重写、重新生成、出一版新稿、把补充信息写入合同并更新全文，或上传了新的参考材料。\n选择 chat：询问条款含义、法律风险、需要补充什么、让你解释或给建议，且没有要求输出新的完整合同。`
-
 const DRAFT_CHAT_SYSTEM_PROMPT = `你是法飞飞合同起草助手。根据对话中的当前合同草稿，回答用户的追问、解释条款、指出需要补充的交易信息，或给出审慎的起草建议。除非用户明确要求重新生成完整合同，否则不要输出完整合同正文。回复简洁、专业，避免编造事实或给出绝对法律结论。`
 
-const draftActionFromResult = (result) => {
-  try {
-    const parsed = JSON.parse(String(result || '').match(/\{[\s\S]*\}/)?.[0] || '{}')
-    return parsed.action === 'draft' || parsed.action === 'chat' ? parsed.action : null
-  } catch {
-    return null
-  }
-}
+const isFakeLlm = () => String(process.env.TASK_FAKE_LLM || '').toLowerCase() === 'true'
 
-const hasExplicitDraftIntent = (message = '') => /(?:重新|再次|重新生成|再生成|重新起草|重写|改写|更新|修订|完善|补充).{0,16}(?:合同|协议|文档|草稿|全文|一版|版本)|(?:生成|起草|出).{0,12}(?:合同|协议|文档|草稿|全文|一版|版本)/.test(message)
-
-const resolveDraftAction = async ({ message, hasExistingDraft, attachments, model }) => {
-  if (!hasExistingDraft || attachments.length) return 'draft'
-  try {
-    const result = await chat(DRAFT_ACTION_CLASSIFIER_SYSTEM_PROMPT, `用户本轮消息：${message}`, {
-      model,
-      temperature: 0,
-      maxTokens: 40,
-      thinking: { type: 'disabled' }
-    })
-    return draftActionFromResult(result) || (hasExplicitDraftIntent(message) ? 'draft' : 'chat')
-  } catch (error) {
-    console.warn('[contract-draft] Intent classification failed; using keyword fallback:', error.message)
-    return hasExplicitDraftIntent(message) ? 'draft' : 'chat'
-  }
+const resolveDraftAction = async ({ message, hasExistingDraft, attachments, model, operation }) => {
+  const resolved = await resolveDraftIntent({ operation, message, hasExistingDraft, attachments, model, fakeLlm: isFakeLlm() })
+  return resolved.action
 }
 
 // 分类失败不影响主流程：关键词和通用模板仍能让未知合同类型正常起草。
 const classifyContractDraft = async ({ instruction, referenceMaterials, model }) => {
   const fallbackInput = `${instruction}\n${referenceMaterials.map((item) => `${item.name}\n${item.text}`).join('\n')}`
   const fallback = guessContractType(fallbackInput)
+  if (isFakeLlm()) return fallback
   try {
     const result = await chat(CONTRACT_TYPE_CLASSIFIER_SYSTEM_PROMPT, buildContractTypeClassifierMessage({ instruction, referenceMaterials }), {
       model,
@@ -172,6 +140,7 @@ const classifyContractDraft = async ({ instruction, referenceMaterials, model })
  */
 router.post('/contract-draft', upload.array('files', 6), async (req, res) => {
   const message = typeof req.body?.message === 'string' ? req.body.message.trim() : ''
+  const operation = typeof req.body?.operation === 'string' ? req.body.operation.trim() : ''
   let history = []
   try {
     history = typeof req.body?.history === 'string'
@@ -182,6 +151,7 @@ router.post('/contract-draft', upload.array('files', 6), async (req, res) => {
   }
   if (!Array.isArray(history)) history = []
   const attachments = req.files || []
+  if (!message && attachments.length) return res.status(422).json({ error: DRAFT_INTENT_CLARIFICATION, code: 'draft_intent_clarification', requiresClarification: true })
   if (!message) return res.status(400).json({ error: '请描述需要起草的合同类型、交易背景和关键要求' })
   if (message.length > 16000) return res.status(400).json({ error: '起草需求超过 16,000 个字符，请精简后重试' })
   if (attachments.length > 6) return res.status(400).json({ error: '一次最多上传 6 个参考文件' })
@@ -214,18 +184,29 @@ router.post('/contract-draft', upload.array('files', 6), async (req, res) => {
       throw new Error(`参考材料正文超过 ${MAX_DRAFT_REFERENCE_TEXT} 字符，请减少附件或拆分后重试`)
     }
     const hasExistingDraft = history.some((item) => item?.role === 'assistant' && String(item?.content || '').includes('【当前合同草稿'))
-    const action = await resolveDraftAction({ message, hasExistingDraft, attachments, model })
+    const action = await resolveDraftAction({ message, hasExistingDraft, attachments, model, operation })
+    if (action === 'clarify') {
+      writeSSE('chat.start', { model: isFakeLlm() ? 'fake' : model, label: '需要补充本轮起草用途…' })
+      writeSSE('chat.delta', { content: DRAFT_INTENT_CLARIFICATION })
+      writeSSE('chat.complete', {})
+      writeSSE('done', {})
+      return
+    }
     if (action === 'chat') {
-      writeSSE('chat.start', { model, label: '正在结合当前草稿回复…' })
-      for await (const chunk of streamChat(DRAFT_CHAT_SYSTEM_PROMPT, message, {
-        model,
-        temperature: 0.3,
-        maxTokens: 2048,
-        history,
-        thinking: { type: 'enabled' },
-        reasoningEffort: 'medium'
-      })) {
-        if (chunk.content) writeSSE('chat.delta', { content: chunk.content })
+      writeSSE('chat.start', { model: isFakeLlm() ? 'fake' : model, label: '正在结合当前草稿回复…' })
+      if (isFakeLlm()) {
+        writeSSE('chat.delta', { content: buildFakeChatReply(message) })
+      } else {
+        for await (const chunk of streamChat(DRAFT_CHAT_SYSTEM_PROMPT, message, {
+          model,
+          temperature: 0.3,
+          maxTokens: 2048,
+          history,
+          thinking: { type: 'enabled' },
+          reasoningEffort: 'medium'
+        })) {
+          if (chunk.content) writeSSE('chat.delta', { content: chunk.content })
+        }
       }
       writeSSE('chat.complete', {})
       writeSSE('done', {})
@@ -236,17 +217,22 @@ router.post('/contract-draft', upload.array('files', 6), async (req, res) => {
     const typeProfile = classification.profile
     writeSSE('draft.type', { typeId: typeProfile.id, label: `已识别为：${typeProfile.label}${typeProfile.risk === 'high' ? '（需专项复核）' : ''}`, risk: typeProfile.risk, confidence: classification.confidence })
     writeSSE('draft.start', { model, label: attachments.length ? `正在依据${typeProfile.label}专项框架结合参考文件起草…` : `正在依据${typeProfile.label}专项框架起草…`, attachments: referenceMaterials.map((item) => item.name) })
-    for await (const chunk of streamChat(buildContractDraftSystemPrompt(typeProfile), buildContractDraftUserMessage({ instruction: message, referenceMaterials }), {
-      model,
-      temperature: 0.2,
-      maxTokens: 12288,
-      history,
-      thinking: { type: 'enabled' },
-      reasoningEffort: 'medium'
-    })) {
-      if (!chunk.content) continue
-      draftText += chunk.content
-      writeSSE('draft.delta', { content: chunk.content })
+    if (isFakeLlm()) {
+      draftText = buildFakeDraft({ instruction: message, operation: hasExistingDraft ? 'regenerate' : 'create', typeProfile, referenceMaterials })
+      writeSSE('draft.delta', { content: draftText })
+    } else {
+      for await (const chunk of streamChat(buildContractDraftSystemPrompt(typeProfile), buildContractDraftUserMessage({ instruction: message, referenceMaterials }), {
+        model,
+        temperature: 0.2,
+        maxTokens: 12288,
+        history,
+        thinking: { type: 'enabled' },
+        reasoningEffort: 'medium'
+      })) {
+        if (!chunk.content) continue
+        draftText += chunk.content
+        writeSSE('draft.delta', { content: chunk.content })
+      }
     }
     if (!draftText.trim()) throw new Error('模型未返回合同草稿')
     writeSSE('draft.complete', { ...extractDraftMeta(draftText), draftText, model, contractType: { id: typeProfile.id, label: typeProfile.label, risk: typeProfile.risk } })
@@ -332,12 +318,17 @@ router.post('/contract-chat', async (req, res) => {
   const history = Array.isArray(req.body?.history) ? req.body.history : []
   if (!message) return res.status(400).json({ error: '请输入问题' })
 
+  const upstreamController = new AbortController()
+  const onResponseClose = () => {
+    if (!res.writableEnded) upstreamController.abort()
+  }
+  res.once('close', onResponseClose)
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
     Connection: 'keep-alive'
   })
-  const writeSSE = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+  const writeSSE = (event, data) => { if (res.writableEnded || upstreamController.signal.aborted) return; res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`) }
   try {
     const modelProfile = resolveModel(mode)
     writeSSE('chat.start', { mode, model: modelProfile.model })
@@ -348,15 +339,18 @@ router.post('/contract-chat', async (req, res) => {
       maxTokens: modelProfile.maxTokens,
       history,
       thinking: modelProfile.thinking,
-      reasoningEffort: modelProfile.reasoningEffort
+      reasoningEffort: modelProfile.reasoningEffort,
+      signal: upstreamController.signal
     })) {
       if (chunk.content) writeSSE('chat.delta', { content: chunk.content })
     }
     writeSSE('done', {})
   } catch (error) {
+    if (upstreamController.signal.aborted) return
     writeSSE('error', { message: error.message || '对话请求失败' })
     writeSSE('done', {})
   } finally {
+    res.removeListener('close', onResponseClose)
     res.end()
   }
 })
@@ -395,6 +389,7 @@ router.post('/contract-rewrite', upload.array('files', 6), async (req, res) => {
     })
 
     const writeSSE = (event, data) => {
+      if (res.writableEnded) return
       res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
     }
 
