@@ -209,12 +209,3 @@ body {
     transition: opacity 0.3s ease;
 }
 
-.auth-loading {
-    min-height: 100vh;
-    display: grid;
-    place-items: center;
-    color: #52627a;
-    background: #fff;
-    font-size: 15px;
-}
-

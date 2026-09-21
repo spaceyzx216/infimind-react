@@ -205,18 +205,6 @@
     margin-left: clamp(0.5rem, 1vw, 1rem);
 }
 
-.auth-nav-link {
-    color: #17304f;
-    text-decoration: none;
-    padding: 0.65rem 0;
-    font-size: clamp(0.82rem, 1vw, 0.95rem);
-    font-weight: 600;
-    white-space: nowrap;
-}
-
-.auth-nav-link:hover { color: #FD7002; }
-.workspace-entry-link { color: #0b3f78; font-weight: 650; }
-
 .primary-btn:hover {
     transform: translateY(-2px);
     box-shadow: 0 10px 25px rgba(253, 112, 2, 0.3);

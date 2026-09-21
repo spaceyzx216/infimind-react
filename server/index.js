@@ -4,12 +4,10 @@ import dotenv from 'dotenv'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import contractRewriteRouter from './routes/contract-rewrite.js'
-import { createAuthRouter } from './routes/auth.js'
-import { createRequireAuth } from './middleware/auth.js'
-import { createAuthService } from './services/auth-service.js'
+import laborConsultRouter, { bootstrapLaborKnowledge } from './routes/labor-consult.js'
 import { initialize, loadTemplates } from './services/knowledge-base.js'
-import { createTaskRuntime } from './services/task-runtime.js'
-import { createTaskRouter } from './routes/tasks.js'
+import { getLaborVectorStatus } from './services/labor-vector.js'
+import { initializeLaborKb } from './services/labor-kb.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: resolve(__dirname, '../.env.local') })
@@ -20,41 +18,17 @@ const app = express()
 app.use(cors())
 app.use(express.json({ limit: '2mb' }))
 
+// 路由
+app.use('/api', contractRewriteRouter)
+app.use('/api', laborConsultRouter)
+
 // 健康检查
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'contract-rewrite-local', timestamp: new Date().toISOString() })
 })
 
-const { businessDatabase, taskService, taskFileStore, taskQueue } = createTaskRuntime()
-const authService = createAuthService(businessDatabase)
-
-// 认证接口公开；其余 API 在进入业务路由前统一校验 Bearer JWT。
-app.use('/api/auth', createAuthRouter(authService))
-app.use('/api', createRequireAuth(authService))
-app.use('/api', createTaskRouter({ taskService, taskQueue, fileStore: taskFileStore }))
-app.use('/api', contractRewriteRouter)
-
-const cleanupTimer = setInterval(async () => {
-  const expired = taskService.listExpiredFiles()
-  if (!expired.length) return
-  try {
-    await taskFileStore.cleanupExpiredFiles(expired)
-    taskService.removeFileRecords(expired.map((file) => file.id))
-    console.log(`[tasks] cleaned ${expired.length} expired task file(s)`)
-  } catch (error) {
-    console.warn('[tasks] file cleanup failed:', error.message)
-  }
-}, 60 * 60 * 1000)
-cleanupTimer.unref?.()
-
 // 初始化知识库
 async function bootstrap() {
-  try {
-    const queueInfo = await taskQueue.start()
-    console.log(`[tasks] queue started in ${queueInfo.mode} mode (concurrency=${queueInfo.concurrency}, worker=${taskQueue.workerEnabled ? 'on' : 'off'})`)
-  } catch (error) {
-    console.warn('[tasks] queue startup failed; task creation may be unavailable:', error.message)
-  }
   try {
     initialize()
     const count = await loadTemplates()
@@ -64,16 +38,41 @@ async function bootstrap() {
     console.warn('[server] Run "npm run import:templates" to import contract templates.')
   }
 
+  // 用工咨询：法规白名单 + 典型案例库（幂等，已存在则跳过）
+  try {
+    const labor = bootstrapLaborKnowledge()
+    console.log(`[server] Labor knowledge ready (laws seeded: ${labor.inserted}, existing: ${labor.skipped})`)
+  } catch (error) {
+    console.warn('[server] Labor knowledge initialization skipped:', error.message)
+  }
+
+  // 向量索引状态：启动即暴露，避免"跑起来才发现语义召回一直在降级"
+  try {
+    // ⚠️ 顺序有依赖：getLaborVectorStatus() 要查 labor_kb_entries，
+    // 而该表由 initializeLaborKb() 创建——initializeLaborVector() 只建 embeddings 表
+    // （其外键指向 labor_kb_entries，SQLite 允许前向引用所以建得成功）。
+    // 全新环境下不先建表会抛 "no such table: labor_kb_entries"，
+    // 让这段启动诊断在最需要它的场景里静默失效。
+    initializeLaborKb()
+    const vector = getLaborVectorStatus()
+    const pct = (vector.coverage * 100).toFixed(1)
+    console.log(`[server] Labor vector index: ${vector.embedded}/${vector.entries} (${pct}%) `
+      + `model=${vector.model} dim=${vector.dimension} ready=${vector.ready}`)
+    if (vector.modelMismatch) {
+      console.warn('[server] ⚠️ 向量索引模型不一致：库内为 '
+        + `${vector.storedModels.map((item) => `${item.model}(${item.count})`).join('、')}，当前配置为 ${vector.model}`)
+      console.warn('[server] ⚠️ 语义召回将降级为纯词法。修复：npm run build:labor-embeddings')
+    } else if (!vector.ready) {
+      console.warn('[server] ⚠️ 向量索引为空，语义召回将降级为纯词法。修复：npm run build:labor-embeddings')
+    }
+  } catch (error) {
+    console.warn('[server] Labor vector index status unavailable:', error.message)
+  }
+
   const server = app.listen(PORT, () => {
     console.log(`[server] Contract rewrite local engine listening on http://localhost:${PORT}`)
     console.log(`[server] API endpoint: POST http://localhost:${PORT}/api/contract-rewrite`)
-    console.log(`[server] Task API endpoint: POST http://localhost:${PORT}/api/tasks/contract-review`)
-  })
-
-  server.on('close', async () => {
-    clearInterval(cleanupTimer)
-    await taskQueue.close().catch(() => {})
-    businessDatabase.close()
+    console.log(`[server] API endpoint: POST http://localhost:${PORT}/api/labor-consult`)
   })
 
   server.on('error', (error) => {

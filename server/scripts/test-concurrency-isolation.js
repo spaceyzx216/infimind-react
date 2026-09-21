@@ -25,10 +25,7 @@ const reviewResult = {
 }
 const clientA = 'client-concurrency-a'
 const clientB = 'client-concurrency-b'
-const userA = 'user-concurrency-a'
-const userB = 'user-concurrency-b'
 const sessionA = createReviewSession({
-  userId: userA,
   clientId: clientA,
   contractText: '甲方合同',
   analysisReport: '',
@@ -36,7 +33,6 @@ const sessionA = createReviewSession({
   reviewResult
 })
 const sessionB = createReviewSession({
-  userId: userB,
   clientId: clientB,
   contractText: '乙方合同',
   analysisReport: '',
@@ -44,17 +40,18 @@ const sessionB = createReviewSession({
   reviewResult
 })
 
-assert.equal(getReviewSession(sessionA.id, userA)?.contractText, '甲方合同')
-assert.equal(getReviewSession(sessionB.id, userB)?.contractText, '乙方合同')
-assert.equal(getReviewSession(sessionA.id, userB), null)
-assert.equal(getReviewSession(sessionB.id, userA), null)
+assert.equal(getReviewSession(sessionA.id, clientA)?.contractText, '甲方合同')
+assert.equal(getReviewSession(sessionB.id, clientB)?.contractText, '乙方合同')
+assert.equal(getReviewSession(sessionA.id, clientB), null)
+assert.equal(getReviewSession(sessionB.id, clientA), null)
 assert.equal(getReviewSession(sessionA.id), null)
 
-assert.throws(() => createReviewSession({
-  contractText: '无归属用户的会话',
+const legacySession = createReviewSession({
+  contractText: '兼容旧客户端',
   analysisReport: '',
   reviewReport: '',
   reviewResult
-}), /real user ID/)
+})
+assert.equal(getReviewSession(legacySession.id)?.contractText, '兼容旧客户端')
 
 console.log('Concurrency isolation regression passed: per-thread request state and per-client review sessions are independent.')

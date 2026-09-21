@@ -15,10 +15,6 @@ dist-ssr
 # SQLite runtime journals; the knowledge base database itself is versioned.
 *.db-shm
 *.db-wal
-server/data/*.db
-server/data/*.db-shm
-server/data/*.db-wal
-server/data/task-files/
 server/knowledge-base/evaluation-report.json
 
 # Temporary archives and deployment snapshots
@@ -40,3 +36,4 @@ agent-api-v2/
 
 # Auto-generated HTML file
 index.html
+server/knowledge-base/labor-kb-labels.json

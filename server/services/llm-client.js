@@ -9,8 +9,6 @@ const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY
 const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com'
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro'
 const DEEPSEEK_FLASH_MODEL = process.env.DEEPSEEK_FLASH_MODEL || 'deepseek-v4-flash'
-const REQUEST_TIMEOUT_MS = 60_000
-const STREAM_IDLE_TIMEOUT_MS = 60_000
 
 if (!DEEPSEEK_API_KEY) {
   console.warn('[llm-client] Missing DEEPSEEK_API_KEY environment variable.')
@@ -59,135 +57,76 @@ function resolveThinkingOptions(model, thinking, reasoningEffort) {
   }
 }
 
-function describeError(error) {
-  const name = error?.name && error.name !== 'Error' ? `${error.name}: ` : ''
-  const message = error?.message || String(error)
-  const causeCode = error?.cause?.code ? `, cause=${error.cause.code}` : ''
-  const causeMessage = error?.cause?.message && error.cause.message !== message
-    ? `, causeMessage=${error.cause.message}`
-    : ''
-  return `${name}${message}${causeCode}${causeMessage}`
-}
+/**
+ * 请求超时。
+ *
+ * 此前这两个调用**完全没有超时**（裸 fetch，无 AbortController）——上游挂起会永久阻塞。
+ * 流式生成本身可以长达数分钟，因此两者用不同预算：
+ * 非流式（检索词改写等短任务）用短超时；流式只兜住"永久挂起"，给足生成时间。
+ */
+const CHAT_TIMEOUT_MS = Number(process.env.DEEPSEEK_CHAT_TIMEOUT_MS || 60000)
+const STREAM_TIMEOUT_MS = Number(process.env.DEEPSEEK_STREAM_TIMEOUT_MS || 1800000)
 
-function createLlmError(message, { code = 'LLM_REQUEST_FAILED', retryable = true, cause } = {}) {
-  const error = new Error(message, cause ? { cause } : undefined)
-  error.code = code
-  error.retryable = retryable
-  return error
-}
-
-function abortRequest(controller) {
-  if (controller && !controller.signal.aborted) controller.abort()
-}
-
-function readWithTimeout(reader, controller, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    let settled = false
-    let timer
-
-    const finish = (callback, value) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      callback(value)
-    }
-
-    timer = setTimeout(() => {
-      const error = createLlmError(`流式响应 ${timeoutMs}ms 内没有新数据`, {
-        code: 'LLM_STREAM_TIMEOUT',
-        retryable: true
-      })
-      finish(reject, error)
-      abortRequest(controller)
-      void reader.cancel().catch(() => {})
-    }, timeoutMs)
-
-    reader.read().then(
-      (result) => finish(resolve, result),
-      (error) => finish(reject, error)
-    )
-  })
-}
-
-async function deepseekFetch(path, body, retries = 3, externalSignal) {
+/**
+ * 带重试的请求。
+ *
+ * 超时是**整个请求的总预算**（含全部重试与后续流式读取），而不是每次尝试各算一份——
+ * 否则重试会把最坏耗时堆成 `重试次数 × 单次超时`。信号覆盖到流读取结束，
+ * 由调用方在 finally 中调用 cleanup() 释放定时器。
+ *
+ * @returns {Promise<{ response: Response, cleanup: Function }>}
+ */
+async function deepseekFetch(path, body, { retries = 3, timeoutMs = CHAT_TIMEOUT_MS } = {}) {
   const url = `${DEEPSEEK_BASE_URL}${path}`
+  const controller = timeoutMs > 0 ? new AbortController() : null
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null
+  const cleanup = () => { if (timer) clearTimeout(timer) }
+  const signal = controller ? controller.signal : undefined
 
   for (let attempt = 1; attempt <= retries; attempt++) {
-    if (externalSignal?.aborted) {
-      throw createLlmError('DeepSeek 请求已取消', { code: 'LLM_REQUEST_ABORTED', retryable: false })
-    }
-    const controller = new AbortController()
-    const timeout = setTimeout(() => {
-      abortRequest(controller)
-    }, REQUEST_TIMEOUT_MS)
-    const abortExternal = () => abortRequest(controller)
-    const cleanupExternal = () => externalSignal?.removeEventListener('abort', abortExternal)
-    externalSignal?.addEventListener('abort', abortExternal, { once: true })
-
     try {
       const response = await fetch(url, {
         method: 'POST',
         headers: buildHeaders(),
         body: JSON.stringify(body),
-        signal: controller.signal
+        signal
       })
 
       if (response.status === 429) {
-        clearTimeout(timeout)
-        cleanupExternal()
-        abortRequest(controller)
         const waitMs = Math.min(1000 * Math.pow(2, attempt), 30000)
         console.warn(`[llm-client] Rate limited. Retrying in ${waitMs}ms (attempt ${attempt}/${retries})`)
         await new Promise((r) => setTimeout(r, waitMs))
-        if (externalSignal?.aborted) {
-          throw createLlmError('DeepSeek 请求已取消', { code: 'LLM_REQUEST_ABORTED', retryable: false })
-        }
         continue
       }
 
       if (response.status === 400) {
         const err = await response.json().catch(() => ({}))
-        throw createLlmError(`Bad request: ${JSON.stringify(err)}`, {
-          code: 'LLM_BAD_REQUEST',
-          retryable: false
-        })
+        throw new Error(`Bad request: ${JSON.stringify(err)}`)
       }
 
       if (!response.ok) {
         const errText = await response.text().catch(() => 'unknown error')
-        throw createLlmError(`API error ${response.status}: ${errText}`, {
-          code: `LLM_HTTP_${response.status}`,
-          retryable: response.status >= 500
-        })
+        throw new Error(`API error ${response.status}: ${errText}`)
       }
 
-      clearTimeout(timeout)
-      return { response, controller, cleanup: cleanupExternal }
+      return { response, cleanup }
     } catch (err) {
-      clearTimeout(timeout)
-      cleanupExternal()
-      abortRequest(controller)
-      if (externalSignal?.aborted) {
-        throw createLlmError('DeepSeek 请求已取消', {
-          code: 'LLM_REQUEST_ABORTED',
-          retryable: false,
-          cause: err
-        })
+      // 超时/主动取消不再重试：预算已耗尽，重试只会再等到同一时刻
+      if (controller?.signal.aborted) {
+        cleanup()
+        throw new Error(`DeepSeek 请求超时（总预算 ${timeoutMs}ms）`)
       }
-      const detail = describeError(err)
-      if (attempt === retries || err?.retryable === false) {
-        throw createLlmError(`DeepSeek 请求失败（${attempt}/${retries}）：${detail}`, {
-          code: err?.code || 'LLM_REQUEST_FAILED',
-          retryable: err?.retryable !== false,
-          cause: err
-        })
+      if (attempt === retries) {
+        cleanup()
+        throw err
       }
       const waitMs = 1000 * attempt
-      console.warn(`[llm-client] Request failed: ${detail}. Retrying in ${waitMs}ms (attempt ${attempt}/${retries})`)
+      console.warn(`[llm-client] Request failed. Retrying in ${waitMs}ms (attempt ${attempt}/${retries})`)
       await new Promise((r) => setTimeout(r, waitMs))
     }
   }
 
+  cleanup()
   throw new Error('Unreachable')
 }
 
@@ -205,7 +144,7 @@ export async function chat(systemPrompt, userMessage, options = {}) {
     maxTokens = 8192,
     thinking,
     reasoningEffort,
-    signal
+    timeoutMs = CHAT_TIMEOUT_MS
   } = options
 
   const messages = []
@@ -214,13 +153,13 @@ export async function chat(systemPrompt, userMessage, options = {}) {
   }
   messages.push({ role: 'user', content: userMessage })
 
-  const { response, controller, cleanup } = await deepseekFetch('/chat/completions', {
+  const { response, cleanup } = await deepseekFetch('/chat/completions', {
     model,
     messages,
     temperature,
     max_tokens: maxTokens,
     ...resolveThinkingOptions(model, thinking, reasoningEffort)
-  }, 3, signal)
+  }, { timeoutMs })
 
   try {
     const data = await response.json()
@@ -234,8 +173,7 @@ export async function chat(systemPrompt, userMessage, options = {}) {
 
     return content
   } finally {
-    abortRequest(controller)
-    cleanup?.()
+    cleanup()
   }
 }
 
@@ -253,8 +191,7 @@ export async function* streamChat(systemPrompt, userMessage, options = {}) {
     maxTokens = 8192,
     history = [],
     thinking,
-    reasoningEffort,
-    signal
+    reasoningEffort
   } = options
 
   const messages = []
@@ -270,54 +207,42 @@ export async function* streamChat(systemPrompt, userMessage, options = {}) {
   messages.push({ role: 'user', content: userMessage })
 
   const inputChars = systemPrompt.length + userMessage.length
-  console.log(`[llm-client] Starting stream with model: ${model}, input ~${inputChars} chars`)
+  const thinkingOptions = resolveThinkingOptions(model, thinking, reasoningEffort)
+  // 把实际发出的模型与思考档位打进日志：否则"设了档位却没生效"这类问题无法自证
+  // （reasoning_effort 仅在 thinking.type==='enabled' 时才会附带，静默丢弃过一次）
+  const effortLabel = thinkingOptions.thinking.type === 'enabled' ? (thinkingOptions.reasoning_effort || 'high(默认)') : '未发送(thinking=disabled)'
+  console.log(`[llm-client] Starting stream with model: ${model}, thinking: ${thinkingOptions.thinking.type}, reasoning_effort: ${effortLabel}, input ~${inputChars} chars`)
 
-  const { response, controller, cleanup } = await deepseekFetch('/chat/completions', {
+  const { response, cleanup } = await deepseekFetch('/chat/completions', {
     model,
     messages,
     temperature,
     max_tokens: maxTokens,
     stream: true,
-    ...resolveThinkingOptions(model, thinking, reasoningEffort)
-  }, 3, signal)
-
-  if (!response.body) {
-    abortRequest(controller)
-    cleanup?.()
-    throw createLlmError('DeepSeek 响应没有可读取的流式内容', {
-      code: 'LLM_EMPTY_RESPONSE',
-      retryable: false
-    })
-  }
+    ...thinkingOptions
+  }, { timeoutMs: STREAM_TIMEOUT_MS })
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
   let totalTokens = 0
   let receivedChunks = 0
+  // 分别统计思考与正文：reasoning_effort 拉高后出现过"只有思考、没有正文"的空答复，
+  // 只记 chunk 数无法区分是模型没答还是流断了。
+  let reasoningChars = 0
+  let contentChars = 0
+  let finishReason = null
 
   try {
     while (true) {
       let readResult
       try {
-        readResult = await readWithTimeout(reader, controller, STREAM_IDLE_TIMEOUT_MS)
+        readResult = await reader.read()
       } catch (readError) {
-        if (signal?.aborted) {
-          throw createLlmError('流式请求已取消', { code: 'LLM_REQUEST_ABORTED', retryable: false, cause: readError })
-        }
-        if (readError?.code === 'LLM_STREAM_TIMEOUT') throw readError
         if (receivedChunks === 0) {
-          throw createLlmError(`流读取失败（尚未收到任何数据，可能是输入过大或 API 拒绝请求）: ${describeError(readError)}`, {
-            code: 'LLM_STREAM_READ_FAILED',
-            retryable: true,
-            cause: readError
-          })
+          throw new Error(`流读取失败（尚未收到任何数据，可能是输入过大或 API 拒绝请求）: ${readError.message}`)
         }
-        throw createLlmError(`流连接中断（已收到 ${receivedChunks} 个数据块）: ${describeError(readError)}`, {
-          code: 'LLM_STREAM_READ_FAILED',
-          retryable: true,
-          cause: readError
-        })
+        throw new Error(`流连接中断（已收到 ${receivedChunks} 个数据块）: ${readError.message}`)
       }
 
       const { done, value } = readResult
@@ -332,7 +257,9 @@ export async function* streamChat(systemPrompt, userMessage, options = {}) {
         const trimmed = line.trim()
         if (!trimmed || trimmed.startsWith('event:')) continue
         if (trimmed === 'data: [DONE]') {
-          console.log(`[llm-client] Stream done. Total tokens: ${totalTokens}, chunks: ${receivedChunks}`)
+          console.log(`[llm-client] Stream done. tokens=${totalTokens}, chunks=${receivedChunks}, `
+            + `reasoning=${reasoningChars}字, content=${contentChars}字, finish=${finishReason || 'n/a'}`
+            + (contentChars === 0 ? '  ⚠️ 无正文输出（思考可能耗尽了预算）' : ''))
           return
         }
 
@@ -350,6 +277,9 @@ export async function* streamChat(systemPrompt, userMessage, options = {}) {
             if (parsed.usage?.total_tokens) {
               totalTokens = parsed.usage.total_tokens
             }
+            if (choice.finish_reason) finishReason = choice.finish_reason
+            reasoningChars += reasoning.length
+            contentChars += content.length
 
             yield {
               content,
@@ -365,8 +295,8 @@ export async function* streamChat(systemPrompt, userMessage, options = {}) {
     }
   } finally {
     reader.releaseLock()
-    abortRequest(controller)
-    cleanup?.()
+    // 定时器必须活到流读取结束（信号覆盖整段生成），此处才释放
+    cleanup()
   }
 }
 

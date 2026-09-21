@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url'
 import { splitIntoClauses, extractRiskRules, inferRiskCategory } from './knowledge-processor.js'
 import { rerankEvidence, getRerankerStatus } from './evidence-reranker.js'
 import { getVectorStatus, searchVectorEvidence } from './vector-store.js'
+import { classifyError } from './siliconflow-client.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DEFAULT_DB_PATH = join(__dirname, '..', 'knowledge-base', 'templates.db')
@@ -12,6 +13,25 @@ const DEFAULT_TEMPLATES_DIR = join(__dirname, '..', 'knowledge-base', 'templates
 const DEFAULT_INDEX_PATH = join(__dirname, '..', 'knowledge-base', 'index.json')
 const RRF_K = 60
 let db = null
+
+/**
+ * 合同知识库检索的运行时健康计数。
+ *
+ * 此前向量路失败只打一行 console.warn，且异常在 searchEvidence 内部就被吞掉，
+ * 接口层永远不会 reject —— 结果是这条路径 100% 降级却对用户与监控完全不可见，
+ * 正是"以为在跑混合检索、实际是坏掉的单路词法"这一教训的合同侧版本。
+ */
+const evidenceHealth = {
+  vector: { attempted: 0, ok: 0, degraded: 0, lastReason: '' },
+  rerank: { attempted: 0, ok: 0, degraded: 0, lastReason: '' }
+}
+
+export function getEvidenceRetrievalHealth() {
+  return {
+    vector: { ...evidenceHealth.vector, available: evidenceHealth.vector.ok > 0 },
+    rerank: { ...evidenceHealth.rerank, available: evidenceHealth.rerank.ok > 0 }
+  }
+}
 
 export function initialize(dbPath = DEFAULT_DB_PATH) {
   if (db) return db
@@ -199,6 +219,10 @@ export function search(query, options = {}) {
 /**
  * 多主题混合检索：先做条款与风险规则的 BM25 召回，再按需并入向量召回，
  * 使用 RRF 融合，最后由可配置重排器与证据多样化选择最终上下文。
+ *
+ * @returns {Promise<Array & { retrieval: object }>}
+ *   返回数组带 `retrieval` 字段说明本轮实际用了哪几路、哪一路降级及原因，
+ *   调用方据此把降级写进用户可见的 warnings（与 labor-kb.js 的约定一致）。
  */
 export async function searchEvidence(reviewPlan, options = {}) {
   if (!db) initialize()
@@ -209,6 +233,10 @@ export async function searchEvidence(reviewPlan, options = {}) {
   const rawType = reviewPlan?.contractType || ''
   const contractType = rawType && rawType !== '通用商业合同' ? rawType : ''
   const candidates = new Map()
+  const retrieval = {
+    vector: { used: false, count: 0, degraded: false, reason: '' },
+    rerank: { used: false, degraded: false, reason: '' }
+  }
 
   for (const topic of topics) {
     // 风险规则索引包含规范化的风险类别；把主题标签一并检索可避免原条款措辞
@@ -221,7 +249,10 @@ export async function searchEvidence(reviewPlan, options = {}) {
   }
 
   const vectorStatus = getVectorStatus()
-  if (vectorStatus.enabled) {
+  if (!vectorStatus.enabled) {
+    retrieval.vector.reason = 'not_configured'
+  } else {
+    evidenceHealth.vector.attempted += 1
     try {
       const vectorHits = await searchVectorEvidence(topics, { limit: 24, contractType })
       const vectorEvidence = getEvidenceByIds(vectorHits.map((hit) => hit.evidenceId), { excludeTemplateId })
@@ -229,14 +260,37 @@ export async function searchEvidence(reviewPlan, options = {}) {
         const vectorHit = vectorHits.find((hit) => hit.evidenceId === evidence.evidenceId)
         mergeCandidate(candidates, evidence, { id: vectorHit?.topicId || 'vector', label: vectorHit?.topicLabel || '语义匹配' }, 1 / (RRF_K + index + 1))
       })
+      retrieval.vector.used = true
+      retrieval.vector.count = vectorEvidence.length
+      evidenceHealth.vector.ok += 1
     } catch (error) {
-      console.warn(`[knowledge-base] Vector retrieval skipped: ${error.message}`)
+      // 结构化降级：分类 + 计数器 + 交给调用方写入用户可见 warnings
+      const reason = error.reason || classifyError(0, error.message)
+      retrieval.vector.degraded = true
+      retrieval.vector.reason = reason
+      evidenceHealth.vector.degraded += 1
+      evidenceHealth.vector.lastReason = error.message
+      console.warn(`[knowledge-base] Vector retrieval skipped (${reason}): ${error.message}`)
     }
   }
 
   const fused = [...candidates.values()].sort((a, b) => b.retrievalScore - a.retrievalScore).slice(0, candidateLimit)
   const reranked = await rerankEvidence({ reviewPlan, candidates: fused })
-  return diversifyEvidence(reranked, limit)
+  if (reranked.retrieval) {
+    retrieval.rerank = { ...reranked.retrieval }
+    evidenceHealth.rerank.attempted += 1
+    if (reranked.retrieval.degraded) {
+      evidenceHealth.rerank.degraded += 1
+      evidenceHealth.rerank.lastReason = reranked.retrieval.reason || ''
+    } else {
+      evidenceHealth.rerank.ok += 1
+    }
+  }
+
+  // diversifyEvidence 会返回新数组，重排阶段挂上的 retrieval 不会自动带过来，这里显式补回。
+  const diversified = diversifyEvidence(reranked, limit)
+  diversified.retrieval = retrieval
+  return diversified
 }
 
 export function listTemplates() {

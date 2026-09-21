@@ -1,0 +1,150 @@
+/* 用工咨询工作台：复用 ContractRewritePage.css 的聊天外壳，此处只补充本页特有部分。 */
+.labor-consult { --labor-line: #ececec; --labor-soft: #f8f8f9; --labor-muted: #8f8f95; --labor-accent: #1c5d99; }
+
+.labor-consult .chat-sidebar { width: 268px; flex: 0 0 268px; }
+.labor-consult.sidebar-collapsed .chat-sidebar { width: 0; flex-basis: 0; padding-right: 0; padding-left: 0; overflow: hidden; border-right-color: transparent; }
+
+/* 侧栏底部沿用两个合同工作台的余额查询 UI（.sidebar-footer-wrap / .balance-* 来自 ContractRewritePage.css）。 */
+
+/* 对话区 */
+.labor-consult .conversation-inner { width: min(820px, calc(100% - 56px)); }
+.labor-welcome-note { margin-top: 10px !important; padding: 10px 12px; color: #6a6a70 !important; border-left: 3px solid #d7e3ef; background: #f6f9fc; border-radius: 0 8px 8px 0; font-size: 13px !important; line-height: 1.75 !important; }
+.labor-answer { font-size: 15px; line-height: 1.85; color: #232326; }
+.labor-answer h1, .labor-answer h2 { margin: 22px 0 10px; font-size: 17px; line-height: 1.45; }
+.labor-answer h3 { margin: 18px 0 8px; font-size: 15.5px; }
+.labor-answer p { margin: 0 0 12px; }
+.labor-answer ul, .labor-answer ol { margin: 0 0 12px; padding-left: 22px; }
+.labor-answer li { margin: 4px 0; }
+.labor-answer strong { color: #111; }
+.labor-answer blockquote { margin: 14px 0; padding: 8px 14px; color: #5f5f66; border-left: 3px solid #e4e4e6; background: #fafafa; }
+.labor-answer hr { margin: 20px 0; border: 0; border-top: 1px solid #ededef; }
+.labor-answer table { width: 100%; margin-bottom: 14px; border-collapse: collapse; font-size: 13.5px; }
+.labor-answer th, .labor-answer td { padding: 8px 10px; border: 1px solid #e8e8ea; text-align: left; }
+
+.labor-warning { display: flex; align-items: center; gap: 7px; margin: 0 0 10px; padding: 8px 11px; color: #8a5a00; border-radius: 8px; background: #fff8e8; font-size: 12.5px; }
+
+/* 思考过程：刻意做弱——灰底小字、无重边框，目标是"可见但不抢正文"。
+   展开时给一个高度上限 + 内部滚动，否则数万字的思考会把正文挤出屏幕。 */
+.labor-reasoning { margin: 0 0 10px; border-radius: 8px; background: #f7f7f8; }
+.labor-reasoning-head { display: flex; align-items: center; gap: 7px; width: 100%; padding: 6px 10px; color: #7c7c83; border: 0; background: none; font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+.labor-reasoning-head:hover { color: #55555c; }
+.labor-reasoning-head:focus-visible { outline: 2px solid var(--labor-accent); outline-offset: -2px; border-radius: 8px; }
+.labor-reasoning .reasoning-label { font-weight: 500; }
+.labor-reasoning .reasoning-meta { margin-left: auto; color: #a5a5ab; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.labor-reasoning .reasoning-chevron { transition: transform .18s ease; }
+.labor-reasoning .reasoning-chevron.open { transform: rotate(180deg); }
+.labor-reasoning.is-live { background: #f4f7fa; }
+.labor-reasoning.is-live .labor-reasoning-head { color: #4c6b87; }
+.labor-reasoning.is-live .reasoning-pulse { animation: reasoning-pulse 1.5s ease-in-out infinite; }
+@keyframes reasoning-pulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+.labor-reasoning-body { max-height: 260px; overflow-y: auto; padding: 2px 12px 10px; color: #6c6c73; font-size: 12.5px; line-height: 1.75; white-space: pre-wrap; word-break: break-word; }
+/* 流式期间淡出底部，暗示"还在继续" */
+.labor-reasoning.is-live .labor-reasoning-body { mask-image: linear-gradient(to bottom, #000 88%, transparent); -webkit-mask-image: linear-gradient(to bottom, #000 88%, transparent); }
+@media (prefers-reduced-motion: reduce) {
+  .labor-reasoning.is-live .reasoning-pulse { animation: none; }
+  .labor-reasoning .reasoning-chevron { transition: none; }
+}
+
+/* 引用核实面板 */
+.labor-citations { margin-top: 16px; padding: 13px 15px; border: 1px solid #e4e9ef; border-radius: 12px; background: #fbfcfd; }
+.labor-citations header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: #2b2b30; }
+.labor-citations header svg { color: var(--labor-accent); }
+.labor-citations header strong { font-size: 13.5px; }
+.labor-citations header span { margin-left: auto; padding: 3px 8px; border-radius: 999px; font-size: 11.5px; }
+.labor-citations header span.all-ok { color: #10693a; background: #e8f6ee; }
+.labor-citations header span.has-problems { color: #a4362c; background: #fdecea; }
+.labor-citations ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.citation-item { display: flex; gap: 9px; padding: 9px 11px; border-radius: 9px; background: #fff; border: 1px solid #ececef; }
+.citation-item > svg { flex: 0 0 auto; margin-top: 2px; }
+.citation-item.ok > svg { color: #17914f; }
+.citation-item.warn { border-color: #f2e2bd; background: #fffcf3; }
+.citation-item.warn > svg { color: #cc8b00; }
+.citation-item.error { border-color: #f5d5d1; background: #fff7f6; }
+.citation-item.error > svg { color: #c0392b; }
+.citation-item > div { min-width: 0; }
+.citation-item strong { display: block; color: #232326; font-size: 13px; line-height: 1.6; }
+.citation-label { display: inline-block; margin: 2px 0 3px; padding: 1px 7px; border-radius: 999px; background: #f1f1f3; color: #55555b; font-size: 11px; }
+.citation-item small { display: block; color: #7b7b81; font-size: 11.5px; line-height: 1.65; }
+.citation-item .citation-meta { color: #9a9aa0; }
+
+/* 证据抽屉 */
+.labor-evidence { display: flex; width: 340px; flex: 0 0 340px; height: 100vh; flex-direction: column; border-left: 1px solid var(--labor-line); background: #fcfcfd; }
+.labor-evidence-head { padding: 20px 18px 12px; }
+.labor-evidence-head strong { display: block; color: #1f1f23; font-size: 14.5px; }
+.labor-evidence-head small { display: block; margin-top: 5px; color: #9b9ba1; font-size: 11.5px; line-height: 1.6; }
+.labor-evidence-tabs { display: flex; gap: 4px; padding: 0 14px 12px; border-bottom: 1px solid var(--labor-line); }
+.labor-evidence-tabs button { display: inline-flex; flex: 1; align-items: center; justify-content: center; gap: 5px; padding: 7px 6px; color: #5c5c62; border: 0; border-radius: 8px; background: transparent; font: 12.5px inherit; cursor: pointer; }
+.labor-evidence-tabs button:hover { background: #f2f2f4; }
+.labor-evidence-tabs button.active { color: #123f6b; background: #e9f1f9; font-weight: 600; }
+.labor-evidence-tabs em { padding: 0 5px; border-radius: 999px; background: rgb(0 0 0 / 6%); font-size: 10.5px; font-style: normal; }
+.labor-evidence-body { flex: 1; overflow-y: auto; padding: 14px; }
+.labor-empty { margin: 0; padding: 14px; color: #9c9ca2; border-radius: 10px; background: #f6f6f7; font-size: 12.5px; line-height: 1.75; }
+.labor-note { margin: 0 0 12px; padding: 10px 12px; color: #6a6a70; border-radius: 9px; background: #f3f6f9; font-size: 12px; line-height: 1.7; }
+
+.labor-case-card, .labor-evidence-card { margin-bottom: 10px; padding: 12px 13px; border: 1px solid #e9e9ec; border-radius: 11px; background: #fff; }
+.labor-card-head { display: flex; align-items: baseline; gap: 7px; }
+.labor-card-head strong { color: #232326; font-size: 13px; line-height: 1.55; }
+.labor-tag { flex: 0 0 auto; padding: 1px 6px; color: #123f6b; border-radius: 5px; background: #e9f1f9; font-size: 10.5px; font-weight: 600; }
+.labor-card-meta { margin: 5px 0 7px; color: #9b9ba1; font-size: 11px; line-height: 1.6; }
+.labor-card-line { margin: 5px 0 0; color: #4e4e54; font-size: 12.5px; line-height: 1.72; }
+.labor-card-line b { display: block; margin-bottom: 2px; color: #8a8a90; font-size: 11px; font-weight: 600; }
+
+.labor-law-row { display: grid; gap: 3px; margin-bottom: 9px; padding: 10px 12px; border: 1px solid #e9e9ec; border-radius: 10px; background: #fff; }
+.labor-law-row strong { color: #232326; font-size: 12.5px; line-height: 1.5; }
+.labor-law-row span { color: #8a8a90; font-size: 11.5px; line-height: 1.55; }
+.labor-law-pending { color: #b58200 !important; }
+
+/* 后端未连通时的错误态（否则界面会永远停在"正在载入…"） */
+.labor-service-error { margin: 0 14px 12px; padding: 11px 12px; border: 1px solid #f3ded9; border-radius: 10px; background: #fff7f5; }
+.labor-service-error p { display: flex; align-items: flex-start; gap: 6px; margin: 0 0 8px; color: #a4362c; font-size: 12px; line-height: 1.65; }
+.labor-service-error p svg { flex: 0 0 auto; margin-top: 2px; }
+.labor-service-error button { padding: 5px 12px; color: #a4362c; border: 1px solid #e6bdb5; border-radius: 7px; background: #fff; font: 12px inherit; cursor: pointer; }
+.labor-service-error button:hover { background: #fdecea; }
+.labor-empty code { padding: 1px 5px; border-radius: 4px; background: #ececef; font-size: 11.5px; }
+
+/* 输入区 */
+.labor-consult .composer-wrap { flex-direction: column; align-items: center; gap: 8px; }
+.labor-consult .composer { width: min(820px, 100%); }
+.labor-modes { gap: 3px !important; }
+.labor-modes button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; color: #66666c; border: 0; border-radius: 8px; background: transparent; font: 12.5px inherit; cursor: pointer; }
+.labor-modes button:hover { background: #f4f4f5; }
+.labor-modes button.active { color: #123f6b; background: #e9f1f9; font-weight: 600; }
+.labor-modes button:disabled { opacity: .55; cursor: not-allowed; }
+.labor-modes .labor-upload-button { padding: 4px 6px; color: #56565a; }
+.labor-modes .labor-upload-button:hover { color: #123f6b; background: #eef3f8; }
+
+/* 附件待发送区：沿用共享的 .pending-files，仅补一个移除按钮 */
+.labor-consult .pending-files span { padding-right: 5px; }
+.labor-consult .pending-files button { display: grid; width: 16px; height: 16px; flex: 0 0 16px; place-items: center; padding: 0; color: #999; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
+.labor-consult .pending-files button:hover { color: #c13c35; background: #ececef; }
+/* 已发送消息里的附件卡片 */
+.labor-consult .attached-file { width: fit-content; margin-top: 8px; padding: 7px 10px; background: #fff; border: 1px solid #e7e7e9; }
+.labor-consult .user-turn { display: flex; flex-direction: column; align-items: flex-end; }
+.labor-consult .user-turn > p { margin: 0; }
+.labor-disclaimer { display: flex; width: min(820px, 100%); align-items: center; justify-content: center; gap: 6px; margin: 0; color: #a5a5ab; font-size: 11.5px; line-height: 1.6; text-align: center; }
+
+@media (max-width: 1240px) {
+  .labor-evidence { width: 300px; flex-basis: 300px; }
+}
+
+@media (max-width: 1080px) {
+  .labor-evidence { display: none; }
+  .labor-consult .chat-header .header-tools { display: none; }
+}
+
+@media (max-width: 760px) {
+  .labor-consult .chat-sidebar { display: none; }
+  .labor-consult .conversation-inner { width: calc(100% - 30px); }
+  .labor-consult .composer { min-height: 104px; }
+  .labor-answer { font-size: 14.5px; }
+  .labor-disclaimer { font-size: 10.5px; }
+}
+
+/* 实务问答条目卡片 */
+.labor-kb-card { margin-bottom: 10px; padding: 12px 13px; border: 1px solid #e6ebf1; border-left: 3px solid #2f6ea8; border-radius: 11px; background: #fff; }
+.labor-kb-card .labor-card-head strong { font-size: 13px; }
+.labor-kb-card .labor-tag { color: #17456f; background: #e4eef7; }
+.labor-card-line { max-height: 210px; overflow: hidden; }
+.labor-card-cases { margin: 7px 0 0; padding-top: 7px; border-top: 1px dashed #e8e8ea; color: #6b6b72; font-size: 11px; line-height: 1.65; word-break: break-all; }
+.labor-card-cases b { display: block; margin-bottom: 2px; color: #9a9aa0; font-weight: 600; }
+.labor-evidence-tabs button { font-size: 11.5px; gap: 4px; padding: 7px 4px; }

@@ -1,6 +1,7 @@
 import dotenv from 'dotenv'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
+import { classifyError } from './siliconflow-client.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: resolve(__dirname, '../../.env.local') })
@@ -9,29 +10,79 @@ const RERANKER_MODE = (process.env.RAG_RERANKER_MODE || 'siliconflow').toLowerCa
 const SILICONFLOW_RERANK_URL = (process.env.RAG_RERANKER_URL || 'https://api.siliconflow.cn/v1/rerank').replace(/\/$/, '')
 const SILICONFLOW_API_KEY = process.env.RAG_RERANKER_API_KEY || process.env.SILICONFLOW_API_KEY || ''
 const SILICONFLOW_RERANK_MODEL = process.env.RAG_RERANKER_MODEL || 'BAAI/bge-reranker-v2-m3'
+/** 重排请求超时：此前无超时，上游变慢会一直阻塞（实测可拖到分钟级） */
+const RERANK_TIMEOUT_MS = Number(process.env.RAG_RERANKER_TIMEOUT_MS || 8000)
+
+/**
+ * 运行时健康计数。
+ *
+ * 合同知识库侧的重排降级此前只有一行 console.warn：接口层无从得知，用户端也看不到任何提示，
+ * 与用工侧（siliconflow-client.js 的 health 计数 + 降级写入用户可见 warnings）是两套标准。
+ * 项目已因"静默降级"吃过两次亏（以为在跑混合检索、实际是坏掉的单路词法），这里补齐同样的可见性。
+ */
+const health = { calls: 0, ok: 0, degraded: 0, lastReason: '' }
+
+export function getRerankerHealth() {
+  const configured = isSiliconFlowConfigured()
+  return {
+    mode: RERANKER_MODE,
+    configured,
+    model: SILICONFLOW_RERANK_MODEL,
+    // 只有真正成功调用过才认为 "available"，避免"配置了但一直失败"被判为可用
+    available: configured && health.ok > 0,
+    ...health
+  }
+}
 
 /**
  * 先用确定性重排保证离线可用；默认使用 SiliconFlow rerank API 对融合候选
  * 做第二阶段相关性判断。无论哪种模式，都只重排已召回的候选，不允许模型
  * 创造新的证据或更改来源信息。
+ *
+ * @returns {Promise<Array & { retrieval: { used: boolean, degraded: boolean, reason: string } }>}
+ *   降级信息挂在返回数组的 `retrieval` 字段上（与 labor-kb.js 的约定一致），
+ *   调用方据此把降级写进用户可见的 warnings，不再静默回落。
  */
 export async function rerankEvidence({ reviewPlan, candidates }) {
   const heuristic = heuristicRerank(reviewPlan, candidates)
-  if (RERANKER_MODE === 'heuristic' || heuristic.length < 2) return heuristic
+  const retrieval = { used: false, degraded: false, reason: '' }
+  const finish = (items, { used = false, degraded = false, reason = '' } = {}) => {
+    retrieval.used = used
+    retrieval.degraded = degraded
+    retrieval.reason = reason
+    items.retrieval = retrieval
+    return items
+  }
+
+  // 候选不足或显式关闭外部重排：这是预期行为，不算降级。
+  if (RERANKER_MODE === 'heuristic' || heuristic.length < 2) return finish(heuristic)
   if (RERANKER_MODE !== 'siliconflow') {
     console.warn(`[evidence-reranker] Unsupported reranker mode: ${RERANKER_MODE}; using heuristic fallback`)
-    return heuristic
+    return finish(heuristic, { degraded: true, reason: 'mode_unsupported' })
   }
-  if (!isSiliconFlowConfigured()) return heuristic
+  if (!isSiliconFlowConfigured()) {
+    health.degraded += 1
+    health.lastReason = '未配置 SiliconFlow Rerank'
+    console.warn('[evidence-reranker] rerank 降级（not_configured）：回落启发式排序')
+    return finish(heuristic, { degraded: true, reason: 'not_configured' })
+  }
 
+  health.calls += 1
   try {
     const scores = await siliconFlowRerank(reviewPlan, heuristic.slice(0, 36))
-    return heuristic
-      .map((item) => ({ ...item, rerankScore: scores.get(item.evidenceId) ?? item.rerankScore }))
-      .sort((a, b) => b.rerankScore - a.rerankScore)
+    health.ok += 1
+    return finish(
+      heuristic
+        .map((item) => ({ ...item, rerankScore: scores.get(item.evidenceId) ?? item.rerankScore }))
+        .sort((a, b) => b.rerankScore - a.rerankScore),
+      { used: true }
+    )
   } catch (error) {
-    console.warn(`[evidence-reranker] SiliconFlow rerank fallback: ${error.message}`)
-    return heuristic
+    const reason = error.reason || classifyError(0, error.message)
+    health.degraded += 1
+    health.lastReason = error.message
+    console.warn(`[evidence-reranker] SiliconFlow rerank fallback (${reason}): ${error.message}`)
+    return finish(heuristic, { degraded: true, reason })
   }
 }
 
@@ -40,7 +91,8 @@ export function getRerankerStatus() {
     mode: RERANKER_MODE,
     enabled: RERANKER_MODE === 'siliconflow' && isSiliconFlowConfigured(),
     provider: RERANKER_MODE === 'siliconflow' ? 'SiliconFlow' : null,
-    model: RERANKER_MODE === 'siliconflow' ? SILICONFLOW_RERANK_MODEL : null
+    model: RERANKER_MODE === 'siliconflow' ? SILICONFLOW_RERANK_MODEL : null,
+    health: getRerankerHealth()
   }
 }
 
@@ -61,7 +113,10 @@ function heuristicRerank(reviewPlan, candidates) {
 }
 
 async function siliconFlowRerank(reviewPlan, candidates) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), RERANK_TIMEOUT_MS)
   const response = await fetch(SILICONFLOW_RERANK_URL, {
+    signal: controller.signal,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -77,6 +132,7 @@ async function siliconFlowRerank(reviewPlan, candidates) {
       overlap_tokens: 48
     })
   })
+  clearTimeout(timer)
   if (!response.ok) throw new Error(`request failed: ${response.status} ${await response.text()}`)
   const parsed = await response.json()
   const scores = new Map()

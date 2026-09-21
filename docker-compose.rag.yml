@@ -1,11 +1,18 @@
 services:
   qdrant:
+    # 国内服务器拉取 Docker Hub 通常不通（registry-1.docker.io → HTTP 000）。
+    # 用镜像源前缀拉取后再 tag 成本地名：
+    #   docker pull docker.m.daocloud.io/qdrant/qdrant:latest
+    #   docker tag  docker.m.daocloud.io/qdrant/qdrant:latest qdrant/qdrant:latest
     image: qdrant/qdrant:latest
     container_name: infimind-contract-rag
     restart: unless-stopped
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      # ⚠️ 只绑回环地址。Qdrant 默认**无鉴权**，写成 "6333:6333" 会把向量库
+      # 暴露到公网——任何人都能读走合同知识库的全部向量与 payload。
+      # 后端通过 RAG_VECTOR_URL=http://127.0.0.1:6333 访问，绑回环完全够用。
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
 

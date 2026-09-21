@@ -1,13 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
+  ArrowLeft,
   Check,
   ChevronLeft,
+  ChevronDown,
+  CircleDollarSign,
   ClipboardList,
   Copy,
   Download,
+  ExternalLink,
   FilePenLine,
   FileText,
   FolderOpen,
@@ -17,19 +21,19 @@ import {
   PanelLeft,
   PenLine,
   Plus,
+  RefreshCw,
   Send,
   Trash2,
   X
 } from 'lucide-react'
 import './ContractRewritePage.css'
 import './ContractDraftPage.css'
-import ToolOverviewLink from '../components/ToolOverviewLink'
-import { useAuth } from '../components/AuthProvider'
-import { authFetch } from '../utils/auth-api'
+import { ACCEPTED_EXTENSIONS, mergeSelectedFiles, describeRejection } from '../utils/file-selection.js'
 
 const DRAFT_ENDPOINT = '/api/contract-draft'
-const ACCEPTED = '.pdf,.doc,.docx,.rtf,.odt,.xls,.xlsx,.ods,.ppt,.pptx,.odp,.txt,.md,.csv,.tsv,.json,.xml,.html,.htm,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,.gif'
-const MAX_FILE_SIZE = 80 * 1024 * 1024
+const BALANCE_ENDPOINT = '/api/account/balance'
+const THREAD_STORAGE_KEY = 'fafee-contract-draft-threads-v1'
+const TASK_STORAGE_KEY = 'fafee-contract-draft-tasks-v1'
 
 const starterPrompts = [
   '起草一份年度采购框架协议，甲方为采购方，重点明确交付、验收与违约责任。',
@@ -52,7 +56,6 @@ const initialConversations = [
 
 const createId = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 const titleFromInstruction = (instruction) => instruction.replace(/\s+/g, ' ').slice(0, 22) || '合同起草任务'
-const isSupported = (file) => ACCEPTED.includes(file.name.toLowerCase().match(/\.[^.]+$/)?.[0] || '') && file.size <= MAX_FILE_SIZE
 const readStorage = (key, fallback) => { try { return JSON.parse(window.localStorage.getItem(key) || '') || fallback } catch { return fallback } }
 const writeStorage = (key, value) => { try { window.localStorage.setItem(key, JSON.stringify(value)) } catch { /* 存储不可用时不阻断起草 */ } }
 const normalizeThreads = (value) => Array.isArray(value) ? value.filter((item) => item && typeof item === 'object').map((item) => ({ ...item, id: typeof item.id === 'string' ? item.id : createId('draft'), title: typeof item.title === 'string' ? item.title : '历史起草任务', messages: Array.isArray(item.messages) ? item.messages : [], updatedAt: Number(item.updatedAt) || Date.now() })) : []
@@ -81,18 +84,14 @@ function DraftDocument({ draftText, pendingItems, confirmed, onConfirm }) {
 }
 
 function ContractDraftPage() {
-  const navigate = useNavigate()
-  const { user, logout } = useAuth()
   const inputRef = useRef(null)
   const searchRef = useRef(null)
   const inFlightRef = useRef(new Set())
-  const threadStorageKey = `fafee-history-v2:${user.id}:contract-draft:threads`
-  const taskStorageKey = `fafee-history-v2:${user.id}:contract-draft:tasks`
   const [conversations, setConversations] = useState(() => {
-    const saved = normalizeThreads(readStorage(threadStorageKey, []))
+    const saved = normalizeThreads(readStorage(THREAD_STORAGE_KEY, []))
     return saved.length ? saved : initialConversations
   })
-  const [tasks, setTasks] = useState(() => normalizeTasks(readStorage(taskStorageKey, [])))
+  const [tasks, setTasks] = useState(() => normalizeTasks(readStorage(TASK_STORAGE_KEY, [])))
   const [activeId, setActiveId] = useState('')
   const [instruction, setInstruction] = useState('')
   const [files, setFiles] = useState([])
@@ -104,15 +103,20 @@ function ContractDraftPage() {
   const [taskModalOpen, setTaskModalOpen] = useState(false)
   const [taskTitle, setTaskTitle] = useState('')
   const [taskPrompt, setTaskPrompt] = useState('')
+  const [balanceOpen, setBalanceOpen] = useState(false)
+  const [balanceLoading, setBalanceLoading] = useState(false)
+  const [balanceError, setBalanceError] = useState('')
+  const [balanceData, setBalanceData] = useState(null)
   const activeConversation = useMemo(() => conversations.find((item) => item.id === activeId) || conversations[0], [activeId, conversations])
   const activeDraft = useMemo(() => [...(activeConversation?.messages || [])].reverse().find((message) => message.type === 'draft' && message.draftText), [activeConversation])
   const activeRequest = requests[activeConversation?.id] || {}
   const isGenerating = Boolean(activeRequest.loading)
   const matchingConversations = useMemo(() => [...conversations].sort((a, b) => b.updatedAt - a.updatedAt).filter((item) => item.title.toLowerCase().includes(historyQuery.trim().toLowerCase())), [conversations, historyQuery])
+  const cnyBalance = balanceData?.balances?.find((item) => item.currency === 'CNY')
 
   useEffect(() => { if (conversations.length && !conversations.some((item) => item.id === activeId)) setActiveId(conversations[0].id) }, [activeId, conversations])
-  useEffect(() => { writeStorage(threadStorageKey, conversations) }, [threadStorageKey, conversations])
-  useEffect(() => { writeStorage(taskStorageKey, tasks) }, [taskStorageKey, tasks])
+  useEffect(() => { writeStorage(THREAD_STORAGE_KEY, conversations) }, [conversations])
+  useEffect(() => { writeStorage(TASK_STORAGE_KEY, tasks) }, [tasks])
   useEffect(() => {
     const onKeyDown = (event) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); searchRef.current?.focus() } }
     window.addEventListener('keydown', onKeyDown)
@@ -129,12 +133,22 @@ function ContractDraftPage() {
   }))
   const patchRequest = (conversationId, patch) => setRequests((items) => ({ ...items, [conversationId]: { ...(items[conversationId] || {}), ...patch } }))
   const resetComposer = () => { setInstruction(''); setFiles([]) }
+  const loadBalance = async () => {
+    setBalanceLoading(true); setBalanceError('')
+    try {
+      const response = await fetch(BALANCE_ENDPOINT, { headers: { Accept: 'application/json' }, cache: 'no-store' })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || '暂时无法读取剩余用量。')
+      setBalanceData(payload)
+    } catch (error) { setBalanceError(error.message || '暂时无法读取剩余用量。') } finally { setBalanceLoading(false) }
+  }
+  const toggleBalance = () => { const next = !balanceOpen; setBalanceOpen(next); if (next) loadBalance() }
   const uploadFiles = (incoming) => {
-    const next = incoming.filter(isSupported).slice(0, 6)
-    setFiles(next)
-    if (activeConversation?.id) patchRequest(activeConversation.id, {
-      error: next.length !== incoming.length ? '仅支持 PDF、Word、PNG、JPG、WebP，且单个文件不超过 80MB。' : ''
-    })
+    // ⚠️ 追加而不是替换：旧实现 setFiles(本次选择) 会丢掉上一次的选择，
+    // 用户分两次选文件时表现出来就是"只能上传一份"。
+    const { files: merged, unsupported, overflow } = mergeSelectedFiles(files, incoming)
+    setFiles(merged)
+    if (activeConversation?.id) patchRequest(activeConversation.id, { error: describeRejection({ unsupported, overflow }) })
   }
 
   const consumeSSE = async (response, onEvent) => {
@@ -189,7 +203,7 @@ function ContractDraftPage() {
     try {
       const body = files.length ? new FormData() : null
       if (body) { body.append('message', content); body.append('history', JSON.stringify(history)); files.forEach((file) => body.append('files', file)) }
-      const response = await authFetch(DRAFT_ENDPOINT, { method: 'POST', headers: body ? { Accept: 'text/event-stream' } : { 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: body || JSON.stringify({ message: content, history }) })
+      const response = await fetch(DRAFT_ENDPOINT, { method: 'POST', headers: body ? { Accept: 'text/event-stream' } : { 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: body || JSON.stringify({ message: content, history }) })
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}))
         throw new Error(payload.error || `起草请求失败（${response.status}）`)
@@ -267,13 +281,14 @@ function ContractDraftPage() {
         <nav className="history-list">{matchingConversations.map((conversation) => <button type="button" key={conversation.id} className={`${conversation.id === activeConversation.id ? 'selected' : ''}${requests[conversation.id]?.loading ? ' thread-running' : ''}`} onClick={() => { setActiveId(conversation.id); setDocumentOpen(false); resetComposer() }}><span className="history-thread-icon">{requests[conversation.id]?.loading ? <Loader2 size={16} className="spinner" /> : <MessageCircle size={16} />}</span><span>{conversation.title}</span><i className="history-delete" title={requests[conversation.id]?.loading ? '处理中，暂不能删除' : '删除对话'} onClick={(event) => deleteConversation(event, conversation.id)}><Trash2 size={14} /></i></button>)}</nav>
         {tasks.length > 0 && <><p className="history-label task-label">起草任务</p><nav className="history-list task-list">{tasks.map((task) => <button type="button" key={task.id} className={task.threadId === activeConversation?.id ? 'selected' : ''} onClick={() => openTask(task)}><FolderOpen size={16} /><span>{task.title}</span><i className="history-delete" title="删除任务" onClick={(event) => deleteTask(event, task.id)}><Trash2 size={14} /></i></button>)}</nav></>}
         <div className="sidebar-footer-wrap">
-          <div className="sidebar-footer account-trigger"><span className="footer-avatar">{user.username.slice(0, 1)}</span><span className="account-label"><strong>{user.username}</strong><small>{user.email}</small></span><button type="button" className="account-logout-button" onClick={async () => { if (await logout()) navigate('/auth?mode=login') }} aria-label="退出登录" title="退出登录"><span>退出</span></button></div>
+          {balanceOpen && <section className="balance-popover" role="dialog" aria-label="剩余用量"><header><span className="footer-avatar">法</span><strong>法飞飞合同助手</strong><button type="button" aria-label="关闭用量面板" onClick={() => setBalanceOpen(false)}><X size={16} /></button></header><div className="balance-title"><CircleDollarSign size={19} /><strong>剩余用量</strong><button type="button" className="balance-refresh" onClick={loadBalance} disabled={balanceLoading} title="刷新用量"><RefreshCw size={16} className={balanceLoading ? 'spinner' : ''} /></button></div>{balanceLoading && !balanceData && <p className="balance-state"><Loader2 size={15} className="spinner" />正在查询剩余用量…</p>}{balanceError && <p className="balance-error">{balanceError}</p>}{!balanceLoading && !balanceError && balanceData && !cnyBalance && <p className="balance-state">暂未返回人民币用量。</p>}{!balanceError && cnyBalance && <section className="balance-summary"><div className="balance-summary-head"><span>当前剩余用量</span></div><div className="balance-list"><div className="balance-item"><div><span>人民币</span><b>¥ {cnyBalance.total}</b></div><p>充值用量 ¥ {cnyBalance.toppedUp} · 赠送用量 ¥ {cnyBalance.granted}</p></div></div></section>}{balanceData && <small className={balanceData.isAvailable ? 'balance-available' : 'balance-unavailable'}>{balanceData.isAvailable ? '当前用量可正常使用' : '当前用量不足，暂不可使用'}</small>}<a className="balance-top-up" href="https://platform.deepseek.com/" target="_blank" rel="noreferrer">充值用量<ExternalLink size={14} /></a></section>}
+          <button type="button" className="sidebar-footer account-trigger" onClick={toggleBalance} aria-expanded={balanceOpen}><span className="footer-avatar">法</span><span>法飞飞合同助手</span><ChevronDown size={17} className={balanceOpen ? 'balance-chevron open' : 'balance-chevron'} /></button>
         </div>
       </aside>}
 
       <section className="chat-column">
         <header className="chat-header">
-          <div className="header-left">{documentOpen ? <button type="button" className="icon-button" aria-label="返回对话" onClick={() => setDocumentOpen(false)}><ChevronLeft size={21} /></button> : <><button type="button" className="icon-button sidebar-toggle" aria-label={sidebarCollapsed ? '展开历史对话栏' : '折叠历史对话栏'} onClick={() => setSidebarCollapsed((value) => !value)}><PanelLeft size={21} /></button><ToolOverviewLink /></>}</div>
+          <div className="header-left">{documentOpen ? <button type="button" className="icon-button" aria-label="返回对话" onClick={() => setDocumentOpen(false)}><ChevronLeft size={21} /></button> : <><button type="button" className="icon-button sidebar-toggle" aria-label={sidebarCollapsed ? '展开历史对话栏' : '折叠历史对话栏'} onClick={() => setSidebarCollapsed((value) => !value)}><PanelLeft size={21} /></button><Link className="icon-button" to="/" aria-label="返回首页"><ArrowLeft size={20} /></Link></>}</div>
           <div className="chat-title"><strong>{activeConversation?.title || '合同智能起草助手'}</strong><small>AI 生成内容仅供参考，请结合实际情况判断</small></div><div className="header-tools" />
         </header>
         <div className="conversation"><div className="conversation-inner">
@@ -284,7 +299,7 @@ function ContractDraftPage() {
           {activeRequest.error && <p className="chat-error">{activeRequest.error}</p>}
           {!activeConversation?.messages?.length && <div className="starter-prompts">{starterPrompts.map((prompt) => <button type="button" key={prompt} onClick={() => setInstruction(prompt)}>{prompt}<span>→</span></button>)}</div>}
         </div></div>
-        <div className="composer-wrap"><div className="composer"><textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); createDraft() } }} placeholder="上传参考文件或输入你想起草的合同要求…" disabled={isGenerating} />{files.length > 0 && <div className="pending-files">{files.map((file) => <span key={file.name}><FileText size={14} />{file.name}<button type="button" aria-label={`移除 ${file.name}`} onClick={() => setFiles((items) => items.filter((item) => item !== file))}><X size={13} /></button></span>)}</div>}<div className="composer-bottom"><div className="composer-tools"><button type="button" onClick={() => inputRef.current?.click()} title="上传参考文件"><Plus size={24} /></button></div><button type="button" className="voice-send" aria-label="发送消息" onClick={createDraft} disabled={(!instruction.trim() && !files.length) || isGenerating}>{isGenerating ? <Loader2 size={20} className="spinner" /> : <Send size={19} />}</button></div><input ref={inputRef} hidden type="file" multiple accept={ACCEPTED} onChange={(event) => { uploadFiles([...event.target.files]); event.target.value = '' }} /></div></div>
+        <div className="composer-wrap"><div className="composer"><textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); createDraft() } }} placeholder="上传参考文件或输入你想起草的合同要求…" disabled={isGenerating} />{files.length > 0 && <div className="pending-files">{files.map((file) => <span key={file.name}><FileText size={14} />{file.name}<button type="button" aria-label={`移除 ${file.name}`} onClick={() => setFiles((items) => items.filter((item) => item !== file))}><X size={13} /></button></span>)}</div>}<div className="composer-bottom"><div className="composer-tools"><button type="button" onClick={() => inputRef.current?.click()} title="上传参考文件"><Plus size={24} /></button></div><button type="button" className="voice-send" aria-label="发送消息" onClick={createDraft} disabled={(!instruction.trim() && !files.length) || isGenerating}>{isGenerating ? <Loader2 size={20} className="spinner" /> : <Send size={19} />}</button></div><input ref={inputRef} hidden type="file" multiple accept={ACCEPTED_EXTENSIONS} onChange={(event) => { uploadFiles([...event.target.files]); event.target.value = '' }} /></div></div>
       </section>
 
       {documentOpen && <section className="document-column"><header className="document-header"><span>合同草稿</span><div><button type="button" disabled={!activeDraft?.draftText} onClick={() => navigator.clipboard?.writeText(activeDraft?.draftText || '')}><Copy size={18} />复制</button><button type="button" disabled={!activeDraft?.draftText} onClick={downloadDraft}><Download size={18} />下载 Word</button><button type="button" className="close-document" aria-label="关闭合同草稿" onClick={() => setDocumentOpen(false)}><X size={21} /></button></div></header><div className="document-scroll"><DraftDocument draftText={activeDraft?.draftText || ''} pendingItems={activeDraft?.pendingItems || []} confirmed={confirmed} onConfirm={() => setConfirmed(true)} />{activeDraft?.draftText && <aside className="draft-document-note"><strong>起草说明</strong><p>本草稿由 AI 根据当前输入生成；请在签署前核对主体、授权、金额、期限、税务与公司治理等交易事实，并视需要由专业人士复核。</p></aside>}</div></section>}

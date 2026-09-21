@@ -19,7 +19,7 @@ const Footer = () => {
           <div className="footer-section">
             <h4>联系我们</h4>
             <ul>
-              <li><strong>客服热线：</strong><a href="tel:16665752989">166 6575 2989</a></li>
+              <li><strong>客服热线：</strong><a href="tel:18557207998">185 5720 7998</a></li>
               <li><strong>工作时间：</strong>9:00-18:00（工作日）</li>
               <li><strong>邮箱：</strong><a href="mailto:service@fafeifei.com">xialvshi01@flylegal.cn</a></li>
               <li><strong>地址：</strong>浙江省杭州市萧山区金二路617号信息港六期科大讯飞浙江总部</li>
