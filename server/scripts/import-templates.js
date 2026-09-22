@@ -10,7 +10,7 @@ import { readdir, readFile, writeFile, mkdir } from 'fs/promises'
 import { join, extname, basename, dirname, relative } from 'path'
 import { fileURLToPath } from 'url'
 import { createHash } from 'crypto'
-import { initialize, addTemplate, listTemplates, resetKnowledgeBase, close } from '../services/knowledge-base.js'
+import { initialize, addTemplate, listTemplates, resetKnowledgeBase, close, resolveSubType } from '../services/knowledge-base.js'
 import { extractText, extractWordAnnotations, stripNativeCommentText } from '../services/file-parser.js'
 import { splitIntoClauses, extractRiskRules, extractWordAnnotationRiskRules } from '../services/knowledge-processor.js'
 import { syncVectorIndex } from '../services/vector-store.js'
@@ -44,6 +44,8 @@ async function main() {
     const contractType = guessContractType(sourceFile, rawName)
     const referenceRole = guessReferenceRole(rawName)
     const pairKey = buildPairKey(rawName)
+    // 子类型来自 knowledge-base/sub-types.json（数据文件，可增量维护）；查不到就是空串
+    const subType = resolveSubType(sourceFile)
 
     process.stdout.write(`  [processing] ${sourceFile}\n`)
     try {
@@ -89,6 +91,7 @@ async function main() {
         source_path: sourceFile,
         text_file: textFile,
         contract_type: contractType,
+        sub_type: subType,
         industry: guessIndustry(sourceFile, rawName),
         description: `${referenceRole === 'annotated_case' ? '已批注风险反例' : referenceRole === 'excellent_template' ? '经修订的正向合同模板' : '合同参考资料'}：${sourceFile}`,
         reference_role: referenceRole,
@@ -122,6 +125,7 @@ async function main() {
       sourcePath: entry.source_path,
       pairKey: entry.pair_key,
       contentHash: entry.content_hash,
+      subType: entry.sub_type,
       clauses: entry.clauses,
       riskRules: entry.risk_rules,
       content: entry.content

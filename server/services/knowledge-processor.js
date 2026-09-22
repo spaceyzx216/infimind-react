@@ -52,11 +52,44 @@ export function splitIntoClauses(text) {
   return (nonEmpty.length ? nonEmpty : expanded).map((segment, index) => ({
     ...segment,
     clauseKey: `clause-${index + 1}`,
-    chunkIndex: segment.chunkIndex || 0
+    chunkIndex: segment.chunkIndex || 0,
+    // 条款此前没有类别，映射证据时硬写空串，正向模板条款因此完全进不了类别覆盖统计。
+    // 这里用与风险规则同一套 inferRiskCategory 推导，让正向条款也能参与维度覆盖。
+    // 已知缺口：inferRiskCategory 不产出「劳动用工合规」，劳动合同条款会落到邻近类或兜底类。
+    category: segment.category || inferRiskCategory(segment.content)
   }))
 }
 
 /** 将坏例中的人工批注转成可检索、可复用的风险规则。 */
+/**
+ * 汇总式批注拆分 —— **实测后决定不启用**，代码保留在此仅作记录。
+ *
+ * 背景：两类批注粒度差 10 倍。租赁/买卖等是逐条 `【风险批注N：…】`（每份抽 15~18 条）；
+ * 委托/中介/保证/知产等是末尾一大段 `（风险分析：…修改建议：…）`，一段里塞了 2~3 个风险点，
+ * 整段被存成 1 条 ⇒ 每份只抽出 1~3 条。猜测拆开能补回一批证据。
+ *
+ * 实测（41 例，heuristic 口径，拆分后规则 604→637）：
+ *   拆全量：召回 +1.20pp、精度 −1.02pp
+ *   只拆低密度文档：召回 +0.62pp、精度 −0.21pp
+ * ⇒ 召回涨的与精度掉的是同一量级（都在 1pp 噪声区间），净收益不明，却要长期背碎片化风险
+ *   ⇒ **不采用**。真要补证据，靠补素材而不是切碎现有批注。
+ */
+export function splitSummaryAnnotation(normalized) {
+  const SUMMARY_MIN_CHARS = 150
+  const SPLIT_MIN_CHARS = 24
+  if (normalized.length < SUMMARY_MIN_CHARS) return null
+  const matched = normalized.match(/风险分析[：:]([\s\S]*?)(?:修改建议[：:]|建议[：:]|$)/)
+  if (!matched) return null
+  const advice = (normalized.match(/修改建议[：:]([\s\S]*)$/) || [])[1] || ''
+  const sentences = String(matched[1] || '')
+    .split(/(?<=[。；])/)
+    .map((piece) => piece.trim())
+    .filter((piece) => piece.length >= SPLIT_MIN_CHARS)
+  if (sentences.length < 2) return null
+  const suffix = advice.trim() ? ` 修改建议：${advice.trim()}` : ''
+  return sentences.map((sentence) => `风险分析：${sentence}${suffix}`)
+}
+
 export function extractRiskRules(text, clauses) {
   const source = String(text || '')
   const annotations = [
@@ -192,11 +225,74 @@ function findNearestClause(offset, clauses) {
     [...clauses].reverse().find((clause) => clause.startOffset <= offset) || clauses[0]
 }
 
+/**
+ * 严重度信号词表（修问题 9）。
+ *
+ * 原 `inferSeverity` **只升不降**：默认一律返回"中" ⇒ 604 条里 503"中"、101"高"、**0"低"**，
+ * 分级形同虚设，审查 Agent 拿到 12 条证据分不清轻重缓急。
+ *
+ * 改为按三个**可解释的客观信号**判档。**不调 LLM**：判档口径属于法律判断，
+ * 这里只做规则化打分，理由（reasons）一并输出，便于法务抽检与后续修订。
+ *
+ *   ① 法定强制 / 效力瑕疵：法律明文禁止、或影响条款效力的表述
+ *   ② 金额与责任敞口：涉及钱、比例、赔偿范围的表述
+ *   ③ 权利不对等：单方权利 / 单方免责的表述
+ *   ④ 程序性瑕疵：通知方式、送达地址、文本份数等形式问题
+ *
+ * 判档：
+ *   高 = ① 或 (②且③) 或批注明示高危   —— 违法条款或"又赔钱又单边"
+ *   中 = ② 或 ③ 之一
+ *   低 = 仅④，或批注明示低危且无 ①②③
+ * 兜底"中" —— 审查场景宁严勿松，不轻易判低。
+ */
+const SEVERITY_SIGNALS = {
+  explicitHigh: /(?:极高|特别高|高危|严重|重大)/,
+  explicitLow: /(?:低危|低风险|轻微)/,
+  // ⚠️ 故意不含「应当 / 必须」：那是极普通的义务表述（"甲方应当付款"），拿来判高会把 84% 的规则顶成"高"
+  mandatory: /(?:无效|违法|禁止|强制性规定|法定|不得(?:主张|抗辩|解除|变更|转让|再|以任何)|排除对方主要权利|免除(?:己方|自身|本方)责任|加重对方责任|显失公平|无权|剥夺)/,
+  exposure: /(?:全额|全部赔偿|原值|无限|连带|惩罚性|违约金|赔偿金|损失赔偿|赔偿(?:对方|全部|所有)|(?:金额|价款|费用|租金|报酬)[（(]?[\d¥]|百分之|\d+\s*%|\d+\s*％)/,
+  imbalance: /(?:仅甲方|仅乙方|仅(?:由)?(?:买|卖|甲|乙|出租|承租|委托|受托)方|单方|不得主张|放弃(?:权利|主张|抗辩)|概不负责|不承担任何|免除责任|自行承担)/,
+  procedural: /(?:通知(?:方式|渠道|地址)|送达(?:地址|方式)|联系方式|文本(?:格式|份数)|份数|盖章|签署页|宽限(?:期|日))/,
+  // 抬头 / 填空式样板（甲方名称、统一社会信用代码、地址…）——零信息条目，不是风险
+  boilerplate: /(?:名称[：:]\s*_|统一社会信用代码|联系(?:电话|方式)[：:]\s*_|地址[：:]\s*_{2,}|_{5,})/
+}
+
+/** 严重度三维打分：返回 { level, reasons }，reasons 供人工抽检与法务确认 */
+export function scoreSeverity(text) {
+  const value = String(text || '')
+  const hit = (pattern) => pattern.test(value)
+  const explicitHigh = hit(SEVERITY_SIGNALS.explicitHigh)
+  const explicitLow = hit(SEVERITY_SIGNALS.explicitLow)
+  const mandatory = hit(SEVERITY_SIGNALS.mandatory)
+  const exposure = hit(SEVERITY_SIGNALS.exposure)
+  const imbalance = hit(SEVERITY_SIGNALS.imbalance)
+  const procedural = hit(SEVERITY_SIGNALS.procedural)
+  const boilerplate = hit(SEVERITY_SIGNALS.boilerplate)
+  const reasons = []
+
+  // 零信息条目优先判低：它们是合同抬头/填空样板，不是风险
+  if (boilerplate && !explicitHigh && !mandatory) return { level: '低', reasons: ['抬头/填空式样板（零信息条目）'] }
+
+  // 「高」要求两个信号互相印证，或一个法定强制信号被批注强调 —— 避免单一宽泛词把大量规则顶成高
+  if (mandatory && (exposure || imbalance)) reasons.push('法定强制 + 敞口/不对等')
+  else if (exposure && imbalance) reasons.push('金额敞口 + 权利不对等')
+  else if (explicitHigh && (mandatory || exposure || imbalance)) reasons.push('批注强调 + 风险信号')
+  if (reasons.length) {
+    if (explicitHigh) reasons.push('批注明示高危')
+    return { level: '高', reasons }
+  }
+
+  if (exposure) return { level: '中', reasons: ['金额敞口'] }
+  if (imbalance) return { level: '中', reasons: ['权利不对等'] }
+  if (mandatory) return { level: '中', reasons: ['法定强制表述'] }
+  if (explicitHigh) return { level: '中', reasons: ['仅批注强调，未见具体风险表述'] }
+  if (explicitLow) return { level: '低', reasons: ['批注明示低危'] }
+  if (procedural) return { level: '低', reasons: ['程序性/形式性瑕疵'] }
+  return { level: '中', reasons: ['无强信号，保守取中'] }
+}
+
 function inferSeverity(text) {
-  if (/极高|特别高|高危|严重|重大/.test(text)) return '高'
-  if (/中危|中等/.test(text)) return '中'
-  if (/低危|低风险/.test(text)) return '低'
-  return '中'
+  return scoreSeverity(text).level
 }
 
 function inferWordAnnotationCategory(text) {

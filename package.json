@@ -12,6 +12,7 @@
     "worker": "node --use-env-proxy server/worker.js",
     "import:templates": "node server/scripts/import-templates.js",
     "evaluate:knowledge-base": "RAG_RERANKER_MODE=heuristic node server/scripts/evaluate-knowledge-base.js",
+    "check:kb": "node server/scripts/check-kb-baseline.js",
     "test:consolidation": "node server/scripts/test-finding-consolidation.js",
     "test:concurrency": "node server/scripts/test-concurrency-isolation.js",
     "test:auth": "node server/scripts/test-auth.js",

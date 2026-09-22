@@ -11,6 +11,35 @@ const SILICONFLOW_API_KEY = process.env.RAG_RERANKER_API_KEY || process.env.SILI
 const SILICONFLOW_RERANK_MODEL = process.env.RAG_RERANKER_MODEL || 'BAAI/bge-reranker-v2-m3'
 
 /**
+ * 重排降级是"静默失败"的重灾区：**没配 key、模式不支持、API 报错**，三种都会悄悄退回手写公式。
+ * 结局是"你以为生产在跑 bge-reranker，实际跑的是未标定的公式"。
+ *
+ * 留痕方式：**只在进程内首次降级时打一条结构化 JSON 告警**（每次检索都 warn 会把日志刷爆），
+ * 其余全部计数，由 `getRerankerFallbackStats()` 供评测与排障读取。
+ * 沿用项目现状：不引新依赖，`console.*` 生产由 PM2 收进日志文件，grep 即可统计。
+ */
+const rerankerFallbackStats = { count: 0, reasons: {}, lastError: '' }
+let rerankerFallbackWarned = false
+
+function noteRerankerFallback(reason) {
+  rerankerFallbackStats.count += 1
+  rerankerFallbackStats.reasons[reason] = (rerankerFallbackStats.reasons[reason] || 0) + 1
+  if (rerankerFallbackWarned) return
+  rerankerFallbackWarned = true
+  console.warn(JSON.stringify({
+    event: 'kb.reranker_fallback',
+    reason,
+    mode: RERANKER_MODE,
+    providerConfigured: isSiliconFlowConfigured(),
+    note: '重排未生效，已退回确定性启发式公式；进程内仅首次告警，后续只计数'
+  }))
+}
+
+export function getRerankerFallbackStats() {
+  return { ...rerankerFallbackStats, reasons: { ...rerankerFallbackStats.reasons } }
+}
+
+/**
  * 先用确定性重排保证离线可用；默认使用 SiliconFlow rerank API 对融合候选
  * 做第二阶段相关性判断。无论哪种模式，都只重排已召回的候选，不允许模型
  * 创造新的证据或更改来源信息。
@@ -19,10 +48,16 @@ export async function rerankEvidence({ reviewPlan, candidates }) {
   const heuristic = heuristicRerank(reviewPlan, candidates)
   if (RERANKER_MODE === 'heuristic' || heuristic.length < 2) return heuristic
   if (RERANKER_MODE !== 'siliconflow') {
+    noteRerankerFallback('unsupported-mode')
     console.warn(`[evidence-reranker] Unsupported reranker mode: ${RERANKER_MODE}; using heuristic fallback`)
     return heuristic
   }
-  if (!isSiliconFlowConfigured()) return heuristic
+  if (!isSiliconFlowConfigured()) {
+    // ★ 原本这里直接静默 return —— 默认模式是 siliconflow、但没配 key 时，
+    //   生产会一路跑手写公式且毫无痕迹。这是「你以为在跑模型重排」的根因。
+    noteRerankerFallback('not-configured')
+    return heuristic
+  }
 
   try {
     const scores = await siliconFlowRerank(reviewPlan, heuristic.slice(0, 36))
@@ -30,6 +65,8 @@ export async function rerankEvidence({ reviewPlan, candidates }) {
       .map((item) => ({ ...item, rerankScore: scores.get(item.evidenceId) ?? item.rerankScore }))
       .sort((a, b) => b.rerankScore - a.rerankScore)
   } catch (error) {
+    rerankerFallbackStats.lastError = error.message
+    noteRerankerFallback('api-error')
     console.warn(`[evidence-reranker] SiliconFlow rerank fallback: ${error.message}`)
     return heuristic
   }

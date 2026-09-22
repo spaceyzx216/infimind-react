@@ -1,6 +1,6 @@
 import { extractText } from '../services/file-parser.js'
-import { searchEvidence } from '../services/knowledge-base.js'
-import { buildReviewPlan } from '../services/review-plan.js'
+import { searchEvidence, DEFAULT_EVIDENCE_LIMIT } from '../services/knowledge-base.js'
+import { buildReviewPlan, withTypeNoticeInResult, withTypeNoticeInReport } from '../services/review-plan.js'
 import { buildReviewResult, renderReviewReport, extractReviewPayload, findingSimilarity } from '../services/annotation-locator.js'
 import { buildRevisionGroups } from '../services/finding-consolidator.js'
 import { mergeRevisions, coalesceAdjacentAdds } from '../services/revision-merger.js'
@@ -251,9 +251,13 @@ export async function runContractReview({
     reviewPlan = buildReviewPlan({ analysisReport, contractText: parsedText, userInstruction: task.prompt })
     await emit('stage.progress', { stage: 'knowledge', message: `审查计划：${reviewPlan.contractType}｜${reviewPlan.topics.map((topic) => topic.label).join('、')}` })
     try {
-      evidence = await searchEvidence(reviewPlan, { limit: 12 })
+      // 证据条数取自 knowledge-base.js 的唯一定义，避免生产与评测各写一个值
+      evidence = await searchEvidence(reviewPlan, { limit: DEFAULT_EVIDENCE_LIMIT, subType: reviewPlan.subType })
       await emit('templates.found', {
         count: evidence.length,
+        // 内部诊断：类型判定的来源、Agent 1 声明过但库内没有的类型名、是否需要问用户。
+        // 前端不渲染这个字段；留痕是为了出问题时能回放到具体某次请求。
+        diagnostics: { typeResolution: reviewPlan.typeResolution, subType: reviewPlan.subType },
         names: [...new Set(evidence.map((item) => item.sourceName))],
         references: evidence.map((item) => ({ evidenceId: item.evidenceId, name: item.sourceName, contractType: item.contractType, role: item.referenceRole || 'reference', kind: item.kind, clauseNo: item.clauseNo, category: item.category }))
       })
@@ -331,6 +335,8 @@ export async function runContractReview({
   } else {
     await emit('review.round', { round: totalRoundsExecuted || 1, total: totalRoundsExecuted || 1, phase: 'end', newFindings: [], newCount: 0, accumulated: reviewResult.findings?.length || combinedFindings.length, message: '已从检查点恢复风险审查结果', recovered: true })
   }
+  // 类型没判出来时，在「完整性清单」里给用户一句可操作提示（后端注入，不让 LLM 自己判断）
+  reviewResult = withTypeNoticeInResult(reviewResult, reviewPlan)
   const crossRoundDeduped = roundSnapshots.reduce((sum, item) => sum + (Number(item.dropped) || 0), 0)
   await emit('stage.complete', { stage: 'review', summary: `三轮审查完成（实际执行 ${totalRoundsExecuted} 轮），${reviewResult.stats.confirmed} 条批注已定位到原文${reviewResult.stats.unresolved ? `，${reviewResult.stats.unresolved} 条待核查` : ''}`, annotationCount: reviewResult.stats.confirmed, reviewStats: { ...reviewResult.stats, rounds: totalRoundsExecuted, crossRoundDeduped }, roundSnapshots })
 
@@ -355,6 +361,8 @@ export async function runContractReview({
     reviewReport = renderReviewReport(consolidatedReviewResult)
     await checkpoint('consolidation', { revisionGroups, consolidationStats, reviewReport })
   }
+  // 兜底：报告文本可能来自检查点恢复、没有重新渲染，这里再确保一次（幂等，不会重复）
+  reviewReport = withTypeNoticeInReport(reviewReport, reviewPlan)
   if (reviewReport) await emit('review.delta', { content: reviewReport })
   await emit('stage.complete', { stage: 'consolidation', summary: `问题归并完成，${revisionGroups.length} 个修订组`, consolidationStats, recovered: Boolean(consolidationCheckpoint) })
 

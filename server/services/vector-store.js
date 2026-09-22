@@ -25,9 +25,36 @@ export function getVectorStatus() {
   }
 }
 
+/**
+ * 向量不可用是"静默失败"的另一个重灾区：没配地址 / 没配 embedding key 时，
+ * 检索会一路静默走词法，表面上一切正常，实际"混合 RAG"只剩一条腿。
+ * 留痕方式与 `evidence-reranker` 一致：进程内首次降级打一条结构化 JSON 告警（避免刷屏），
+ * 其余只计数，由 `getVectorFallbackStats()` 供评测与排障读取。
+ */
+const vectorFallbackStats = { count: 0, reasons: {} }
+let vectorFallbackWarned = false
+
+export function noteVectorUnavailable(reason) {
+  vectorFallbackStats.count += 1
+  vectorFallbackStats.reasons[reason] = (vectorFallbackStats.reasons[reason] || 0) + 1
+  if (vectorFallbackWarned) return
+  vectorFallbackWarned = true
+  console.warn(JSON.stringify({
+    event: 'kb.vector_unavailable',
+    reason,
+    mode: getVectorStatus().mode,
+    note: '向量检索未生效，已退回纯词法；进程内仅首次告警，后续只计数'
+  }))
+}
+
+export function getVectorFallbackStats() {
+  return { ...vectorFallbackStats, reasons: { ...vectorFallbackStats.reasons } }
+}
+
 /** 在导入后同步条款和风险规则到 Qdrant；未配置服务时无副作用地跳过。 */
 export async function syncVectorIndex(records, { rebuild = process.env.RAG_VECTOR_REBUILD_ON_IMPORT === 'true' } = {}) {
   if (!getVectorStatus().enabled) {
+    noteVectorUnavailable('not-configured')
     console.log('[vector-store] Vector sync skipped: RAG_VECTOR_URL / SiliconFlow Embedding API key not fully configured')
     return { synced: 0, skipped: true }
   }
@@ -46,6 +73,8 @@ export async function syncVectorIndex(records, { rebuild = process.env.RAG_VECTO
       evidenceId: record.evidence_id,
       kind: record.kind,
       contractType: record.contract_type,
+      // 子类型也进 payload —— 否则向量这条路无法按子类型过滤（词法那条路已经做了）
+      subType: record.sub_type || '',
       referenceRole: record.reference_role,
       pairKey: record.pair_key,
       sourcePath: record.source_path,
@@ -58,17 +87,26 @@ export async function syncVectorIndex(records, { rebuild = process.env.RAG_VECTO
   return { synced: points.length, skipped: false }
 }
 
-export async function searchVectorEvidence(topics, { limit = 24, contractType = '' } = {}) {
-  if (!getVectorStatus().enabled) return []
+export async function searchVectorEvidence(topics, { limit = 24, contractType = '', subType = '' } = {}) {
+  if (!getVectorStatus().enabled) {
+    // ★ 原本这里静默 return [] —— 检索侧"混合 RAG"会一路只剩词法腿而无任何痕迹
+    noteVectorUnavailable('not-configured')
+    return []
+  }
   const outputs = []
   const vectors = await embedTexts(topics.map((topic) => `${topic.label}\n${topic.query}`))
+  // 过滤条件与词法侧保持一致：contractType 必给，subType 可选。
+  // 语义检索本身不含"这条证据属于哪类合同"的信号 ⇒ 不加过滤就会把串味证据捞回来。
+  const conditions = []
+  if (contractType) conditions.push({ key: 'contractType', match: { value: contractType } })
+  if (subType) conditions.push({ key: 'subType', match: { value: subType } })
   for (let index = 0; index < topics.length; index++) {
     const topic = topics[index]
     const body = {
       query: vectors[index],
       limit,
       with_payload: true,
-      ...(contractType ? { filter: { must: [{ key: 'contractType', match: { value: contractType } }] } } : {})
+      ...(conditions.length ? { filter: { must: conditions } } : {})
     }
     const data = await vectorRequest(`/collections/${VECTOR_COLLECTION}/points/query`, 'POST', body)
     const points = data?.result?.points || data?.result || []

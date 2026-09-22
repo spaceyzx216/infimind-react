@@ -1,8 +1,8 @@
 import { Router } from 'express'
 import multer from 'multer'
 import { extractText } from '../services/file-parser.js'
-import { getKnowledgeBaseStatus, listTemplates, searchEvidence } from '../services/knowledge-base.js'
-import { buildReviewPlan } from '../services/review-plan.js'
+import { getKnowledgeBaseStatus, listTemplates, searchEvidence, DEFAULT_EVIDENCE_LIMIT } from '../services/knowledge-base.js'
+import { buildReviewPlan, withTypeNoticeInResult, withTypeNoticeInReport } from '../services/review-plan.js'
 import { buildReviewResult, renderReviewReport, extractReviewPayload, findingSimilarity } from '../services/annotation-locator.js'
 import { buildRevisionGroups } from '../services/finding-consolidator.js'
 import { mergeRevisions, coalesceAdjacentAdds } from '../services/revision-merger.js'
@@ -481,9 +481,13 @@ router.post('/contract-rewrite', upload.array('files', 6), async (req, res) => {
         message: `审查计划：${reviewPlan.contractType}｜${reviewPlan.topics.map((topic) => topic.label).join('、')}`
       })
 
-      evidence = await searchEvidence(reviewPlan, { limit: 12 })
+      // 证据条数取自 knowledge-base.js 的唯一定义，避免生产与评测各写一个值
+      evidence = await searchEvidence(reviewPlan, { limit: DEFAULT_EVIDENCE_LIMIT, subType: reviewPlan.subType })
       writeSSE('templates.found', {
         count: evidence.length,
+        // 内部诊断：类型判定的来源、Agent 1 声明过但库内没有的类型名、是否需要问用户。
+        // 前端不渲染这个字段；留痕是为了出问题时能回放到具体某次请求。
+        diagnostics: { typeResolution: reviewPlan.typeResolution, subType: reviewPlan.subType },
         names: [...new Set(evidence.map((item) => item.sourceName))],
         references: evidence.map((item) => ({
           evidenceId: item.evidenceId,
@@ -705,8 +709,9 @@ router.post('/contract-rewrite', upload.array('files', 6), async (req, res) => {
 
     // 最终审查报告也使用归并后的修订组，避免对话报告与批注稿出现两套重复口径。
     // ReviewSession 仍保存原始 canonical findings，保证每个问题的追踪 ID 和统计不丢失。
-    const consolidatedReviewResult = { ...reviewResult, findings: revisionGroups }
-    const reviewReport = renderReviewReport(consolidatedReviewResult)
+    // 类型没判出来时，在「完整性清单」里给用户一句可操作提示（后端注入，不让 LLM 自己判断）
+    const consolidatedReviewResult = withTypeNoticeInResult({ ...reviewResult, findings: revisionGroups }, reviewPlan)
+    const reviewReport = withTypeNoticeInReport(renderReviewReport(consolidatedReviewResult), reviewPlan)
     const reviewSession = createReviewSession({
       userId: req.user.id,
       clientId: requestClientId(req),

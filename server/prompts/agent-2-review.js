@@ -37,12 +37,17 @@ JSON 形状示例（仅示例字段形状，内容必须来自本合同）：
 支持多轮审查：当用户消息末尾出现「第X轮审查（共N轮）」和「前几轮已发现以下问题」清单时，本轮的目标是补充此前遗漏的新问题——不要重复已列出的问题，只输出尚未覆盖的风险或需完善事项。若确信已无新问题，返回空 findings 数组（completeness 字段仍可补充），不要为了凑数重复或改写已有问题。`
 
 export function buildReviewUserMessage({ contractText, analysisReport, evidence, reviewPlan, userInstruction, round = 1, previousFindings = [] }) {
-  const evidenceSection = (evidence || []).slice(0, 12).map((item, index) => {
+  // 证据条数由上游（searchEvidence 的 limit 与每文档上限）决定，这里不再二次截断；
+  // 否则调大交付预算不会生效。真正的上限统一由检索侧的预算常量控制。
+  const evidenceSection = (evidence || []).map((item, index) => {
     const roleLabel = item.kind === 'risk_rule'
       ? item.sourceNote?.startsWith('【Word 原生批注】') ? '人工批注风险规则' : '风险反例规则'
       : item.referenceRole === 'excellent_template' ? '正向模板条款' : '参考条款'
     const heading = [item.clauseNo, item.title, item.category].filter(Boolean).join('｜')
-    return `[E${index + 1}] ID=${item.evidenceId}｜${roleLabel}\n来源：${item.sourceName}｜${heading || '未编号条款'}｜${item.sourcePath || item.sourceFile || '本地素材'}\n主题：${(item.topicLabels || []).join('、') || '通用'}\n证据正文：${(item.text || '').slice(0, 1200)}`
+    // 严重度只对风险规则类证据存在（条款类为空）。此前它只躺在证据对象里、从没进过提示词，
+    // 等于修好了分级也没人用 —— 这里补上，Agent 2 才能参考它判断风险等级。
+    const severityLabel = item.severity ? `｜严重度：${item.severity}` : ''
+    return `[E${index + 1}] ID=${item.evidenceId}｜${roleLabel}\n来源：${item.sourceName}${severityLabel}｜${heading || '未编号条款'}｜${item.sourcePath || item.sourceFile || '本地素材'}\n主题：${(item.topicLabels || []).join('、') || '通用'}\n证据正文：${(item.text || '').slice(0, 2400)}`
   }).join('\n\n') || '无匹配证据。'
   const planSection = reviewPlan
     ? `${reviewPlan.contractType}；${reviewPlan.topics.map((topic) => `${topic.label}（${topic.priority}）`).join('、')}`
