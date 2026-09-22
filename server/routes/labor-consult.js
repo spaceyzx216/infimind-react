@@ -3,7 +3,10 @@
  *
  * POST /api/labor-consult          SSE 流式咨询
  * POST /api/labor-consult/verify   JSON，仅做引用校验（供前端复核与回归测试）
+ * POST /api/labor-consult/forget   JSON，清理会话留存的上传材料
+ * POST /api/labor-consult/title    JSON，依据首轮提问提炼会话标题
  * GET  /api/labor/status           JSON，法规白名单与案例库状态
+ * GET  /api/labor/laws             JSON，法规时效基准表
  *
  * 与合同审查/起草的区别：本接口不做文件上传与多 Agent 管线，而是
  * 「本地知识库检索 + 法规白名单注入 + 案例检索 → 单次流式回答 → 服务端引用校验」。
@@ -23,6 +26,7 @@ import {
 import { verifyOutput, renderCitationNotice } from '../services/citation-verifier.js'
 import { mergeMaterials, getMaterials, clearMaterials, MAX_TOTAL_TEXT } from '../services/consult-material-store.js'
 import { rewriteFollowUpQuery } from '../services/query-rewriter.js'
+import { refineConversationTitle, isTitleRefineEnabled, toClientResult } from '../services/title-refiner.js'
 import { initializeLaborKb, searchLaborKb, getLaborKbStatus, getLaborSearchHealth } from '../services/labor-kb.js'
 import { initializeLaborVector } from '../services/labor-vector.js'
 import { buildLaborConsultSystemPrompt, buildLaborConsultUserMessage } from '../prompts/labor-consult.js'
@@ -345,6 +349,27 @@ router.post('/labor-consult/forget', (req, res) => {
   if (!conversationId) return res.status(400).json({ error: '缺少 conversationId' })
   clearMaterials(conversationId)
   res.json({ ok: true })
+})
+
+// ---------------------------------------------------------------------------
+// POST /api/labor-consult/title —— 依据首轮提问提炼会话标题
+//
+// 独立于 SSE 主链路：前端在提问瞬间先用本地启发式（conversation-title.js）命名，
+// 作答结束后再调本接口把标题静默升级为 LLM 提炼版。
+// 提炼是锦上添花，所以**任何失败都必须回退**——返回 ok:false，前端保留原标题。
+// ---------------------------------------------------------------------------
+router.post('/labor-consult/title', async (req, res) => {
+  const question = typeof req.body?.question === 'string' ? req.body.question : ''
+  if (!question.trim()) return res.status(400).json({ error: '请提供用于命名的问题文本' })
+  if (!isTitleRefineEnabled()) return res.json({ ok: false, reason: 'disabled' })
+
+  const result = await refineConversationTitle({ question })
+  if (!result.ok && result.error) {
+    // 原始错误只留在服务端：实测含 `Your api key: ****test is invalid` 这类片段
+    console.warn('[labor-consult] 标题提炼失败:', result.reason, result.error)
+  }
+  // 只下发安全字段；前端据 ok:false 保留本地标题，不需要额外告警文案
+  res.json(toClientResult(result))
 })
 
 // ---------------------------------------------------------------------------

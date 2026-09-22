@@ -40,10 +40,13 @@ export function looksLikeLegalNorm(name) {
   return LEGAL_NORM_SUFFIX.test(cleaned)
 }
 
-/** 版本号年份：用于识别"2025年修订版"这类不存在的版本 */
-const YEAR_PATTERN = /^[\s（(]*((?:19|20)\d{2})\s*年/
-const VERSION_HINT_PATTERN = /((?:19|20)\d{2}\s*年[^）)]{0,8}(?:修订|修正|版))/
-
+/**
+ * 版本号提示：识别"2025年修订版""2012年修正"这类版本标注。
+ *
+ * ⚠️ 年份后的"年"必须可选：模型也常写「2023修订」「2012修正」。
+ * 漏掉这种写法会让本可用于判定的版本信息变成空串，从而**跳过版本校验**（漏报）。
+ */
+const VERSION_HINT_PATTERN = /((?:19|20)\d{2}\s*年?[^）)]{0,8}(?:修订|修正|版))/
 /**
  * 构建"无书名号"的引用模式（如"劳动合同法第三十八条"）。
  * 只使用白名单里的法规名与别名，避免误匹配。
@@ -170,15 +173,27 @@ export function verifyCitations(citations = [], { laws = [], today = new Date() 
       note = '该法规未收录于服务端法规白名单，其存在性与时效性未经核实'
     }
 
-    // 版本号异常：模型引用了白名单中不存在的版本年份
-    // 注意：只用结构化字段（版本标签 + 施行/失效年份）判断，
-    // 不能把 note 纳入比对——note 里可能包含"不存在2025年修订版"这类否定表述，
-    // 会让 contains 判断误命中而漏报。
+    // 版本号异常：模型引用了白名单中不存在的版本。
+    //
+    // ⚠️ 这里只说"记录版本"，**不能**拿年份去和"施行/失效日期"做包含判断：
+    // 日期字符串里天然带有年份，于是"2024年修订版"会被 `effectiveFrom='2024-07-01'`
+    // 放行——而《公司法》恰恰是 2023年修订、2024-07-01 施行，于是这个不存在的版本号
+    // 一路通过校验。这正是本功能最该拦住的一类幻觉（实测已复现）。
+    //
+    // 判定改为：把模型标注的版本与记录版本做**归一化后的双向包含**，
+    // 并且允许"2023修订"这类省略"年"的写法（把它归一为"2023年修订"再比）。
+    const normalizeVersionText = (value) => String(value || '')
+      .replace(/[\s　]+/g, '')
+      // "2023修订" / "2012修正" → 补上"年"，与记录里的"2023年修订"对齐
+      // ⚠️ 必须同时覆盖「修订」与「修正」：白名单里既有"2023年修订"也有"2012年修正"
+      .replace(/((?:19|20)\d{2})(?=修订|修正)/, '$1年')
     let versionWarning = ''
     if (law && citation.versionHint) {
-      const hintedYear = citation.versionHint.match(YEAR_PATTERN)?.[1]
-      const knownText = `${law.versionLabel || ''} ${law.effectiveFrom || ''} ${law.effectiveTo || ''}`
-      if (hintedYear && !knownText.includes(hintedYear)) {
+      const normalizedHint = normalizeVersionText(citation.versionHint)
+      const normalizedLabel = normalizeVersionText(law.versionLabel)
+      const describesRecordedVersion = Boolean(normalizedLabel)
+        && (normalizedLabel.includes(normalizedHint) || normalizedHint.includes(normalizedLabel))
+      if (!describesRecordedVersion) {
         versionWarning = `模型标注的版本「${citation.versionHint}」未见于白名单记录（记录版本：${law.versionLabel || '未标注'}）`
       }
     }

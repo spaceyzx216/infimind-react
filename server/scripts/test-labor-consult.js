@@ -28,6 +28,17 @@ import { initializeLaborVector, getLaborVectorStatus, searchVector, resetIndexCa
 import { getDb } from '../services/law-whitelist.js'
 import { validateRewrite, formatRewriteContext } from '../services/query-rewriter.js'
 import { mergeSelectedFiles, isSupportedFile, describeRejection } from '../../src/utils/file-selection.js'
+import {
+  buildConversationTitle,
+  shouldAutoTitle,
+  firstQuestionOf,
+  isSyntheticFilePrompt,
+  MAX_TITLE_CHARS,
+  DEFAULT_TITLE
+} from '../../src/utils/conversation-title.js'
+import { formatRelativeTime } from '../../src/utils/relative-time.js'
+import { sanitizeTitle, validateTitle, toClientResult } from '../services/title-refiner.js'
+import { createStreamBuffer, throttleWithTrailing, MARKDOWN_THROTTLE_MS, STREAM_COMMIT_INTERVAL_MS } from '../../src/utils/stream-buffer.js'
 
 let passed = 0
 let failed = 0
@@ -211,6 +222,62 @@ test('无引用时 summary 无问题', () => {
   const { summary } = verifyOutput('这是一段没有任何法条引用的回答。', { laws, today })
   assert.equal(summary.total, 0)
   assert.equal(summary.hasProblems, false)
+})
+
+// --- 公司法（2023修订）收录 + 版本判定加固 ---
+
+test('公司法已收录且判为现行有效', () => {
+  const law = findLaw('中华人民共和国公司法')
+  assert.ok(law, '公司法必须已收录进白名单')
+  assert.equal(law.effectiveFrom, '2024-07-01')
+  assert.equal(law.versionLabel, '2023年修订')
+  assert.equal(law.status, 'effective')
+  assert.equal(resolveLawStatus(law, today), 'verified', '应判为已核实（不是待复核）')
+  // 别名要能被识别，否则"《公司法》第X条"会落到未收录
+  assert.ok(findLaw('公司法'), '简写「公司法」必须能匹配')
+})
+
+test('公司法常用引用放行（第16条 / 第236条 / 无版本标注）', () => {
+  for (const text of [
+    '根据《中华人民共和国公司法》第十六条，公司应当保护职工的合法权益。',
+    '依据《公司法》第二百三十六条，清算财产应优先清偿职工工资、社会保险费用和法定补偿金。',
+    '根据《中华人民共和国公司法》2023年修订第十六条。',
+    '根据《公司法》2023修订第十六条。'
+  ]) {
+    const { citations } = verifyOutput(text, { laws, today })
+    assert.equal(citations[0].status, 'verified', `应判为已核实：${text}`)
+    assert.equal(citations[0].ok, true, `应放行：${text}`)
+  }
+})
+
+test('⭐ 版本判定不得被"施行年份"放行（公司法 2023修订 / 2024施行 的错位）', () => {
+  // 修复前：`effectiveFrom='2024-07-01'` 含 "2024"，于是**不存在的**
+  // 「2024年修订版」被 contains 判断放行——恰是本功能最该拦住的一类幻觉。
+  const cases = [
+    ['根据《公司法》2024年修订版第七十六条，监事会职工代表不低于三分之一。', '2024年修订版'],
+    ['根据《中华人民共和国公司法》2018年修订版第十六条。', '2018年修订版'],
+    ['根据《公司法》2018年修订第十六条。', '2018年修订']   // 省略「年」也要能识别
+  ]
+  for (const [text, hint] of cases) {
+    const { citations } = verifyOutput(text, { laws, today })
+    assert.equal(citations[0].ok, false, `不存在的版本「${hint}」必须被拦截：${text}`)
+    assert.ok(citations[0].note.includes(hint), `note 应点出异常版本，实际：${citations[0].note}`)
+  }
+})
+
+test('版本判定加固后不得误报正确版本（既有法规回归）', () => {
+  // 归一化是双向包含，正确标注必须继续放行，否则会把好引用一起拦掉
+  const cases = [
+    ['根据《劳动合同法》2012年修正第三十八条。', '劳动合同法'],
+    ['根据《中华人民共和国劳动合同法》2012修正第三十八条。', '劳动合同法·省略年']
+  ]
+  for (const [text, label] of cases) {
+    const { citations } = verifyOutput(text, { laws, today })
+    assert.equal(citations[0].ok, true, `${label} 应放行，实际 note：${citations[0].note}`)
+  }
+  // 而真正不存在的版本仍要被拦
+  const bad = verifyOutput('根据《劳动合同法》2025年修订版第三十八条。', { laws, today })
+  assert.equal(bad.citations[0].ok, false)
 })
 test('同一法条重复引用只计一次（去重）', () => {
   const text = '《中华人民共和国劳动合同法》第三十九条……后文再次提到《中华人民共和国劳动合同法》第三十九条，以及《中华人民共和国劳动合同法》第三十九条。'
@@ -613,6 +680,389 @@ test('附件拒绝文案：区分格式不支持与超出数量，并说明支�
   assert.ok(message.includes('超出上限'), '应指出数量问题')
   assert.ok(/PDF|Word/.test(message), '应说明支持哪些格式')
   assert.equal(describeRejection({ unsupported: [], overflow: [] }), '', '无拒绝时不应有提示')
+})
+
+// ---------------------------------------------------------------------------
+console.log('\n14. 会话标题自动命名')
+
+test('标题启发式：剥离开场白，保留主题词', () => {
+  assert.equal(
+    buildConversationTitle('请问员工入职三个月没签书面劳动合同，公司该怎么应对？'),
+    '员工入职三个月没签书面劳动合同'
+  )
+  // 叠加前缀（「你好，请问」）要逐轮剥干净
+  assert.equal(buildConversationTitle('你好，请问竞业限制协议对保安岗位有效吗？'), '竞业限制协议对保安岗位有效')
+  assert.ok(!buildConversationTitle('请问试用期辞退需要赔偿吗').includes('请问'), '开场白不该进标题')
+})
+
+test('标题启发式：剥离结尾语气词与标点', () => {
+  const title = buildConversationTitle('公司给员工调岗降薪，员工不同意申请仲裁，有哪些抗辩空间？')
+  assert.ok(!/[？?，,。]$/.test(title), '标题不该以标点结尾')
+  assert.ok(title.startsWith('公司给员工调岗降薪'), '主题词必须在最前面')
+})
+
+test('标题启发式：超长提问被截断并加省略号（侧边栏单行宽度约束）', () => {
+  const title = buildConversationTitle('员工连续旷工三天'.repeat(6))
+  assert.ok(title.length <= MAX_TITLE_CHARS + 1, `标题不得超过 ${MAX_TITLE_CHARS} 字，实际 ${title.length}`)
+  assert.ok(title.endsWith('…'), '截断必须有省略号，否则看起来像话没说完')
+})
+
+test('标题启发式：空输入回退到占位标题，不产出空标题', () => {
+  assert.equal(buildConversationTitle(''), DEFAULT_TITLE)
+  assert.equal(buildConversationTitle('   \n  '), DEFAULT_TITLE)
+  assert.equal(buildConversationTitle('？？？'), DEFAULT_TITLE, '只有标点时不该产出空标题')
+})
+
+test('标题覆盖判定：占位符可覆盖，用户自定义标题不可覆盖', () => {
+  assert.equal(shouldAutoTitle(DEFAULT_TITLE, '竞业限制协议有效吗'), true)
+  assert.equal(shouldAutoTitle('历史咨询', '竞业限制协议有效吗'), true)
+  assert.equal(shouldAutoTitle('我的重要案子', '竞业限制协议有效吗'), false, '不得抢用户设过的标题')
+  // LLM 提炼版落地后，第二次提炼不得把它打回启发式版本
+  assert.equal(shouldAutoTitle('竞业限制违约金', '竞业限制协议有效吗'), false)
+})
+
+test('首轮提问提取：只有附件时用文件名（否则所有附件会话同名）', () => {
+  const withQuestion = { messages: [{ type: 'user', content: '请分析这份合同', files: [{ name: '劳动合同.pdf' }] }] }
+  assert.equal(firstQuestionOf(withQuestion), '请分析这份合同', '用户写了提问就用提问，它比文件名更能说明主题')
+  const fileOnly = { messages: [{ type: 'user', content: '', files: [{ name: '员工手册.docx' }] }] }
+  assert.equal(firstQuestionOf(fileOnly), '员工手册.docx')
+  assert.equal(firstQuestionOf({ messages: [] }), '')
+  // 追问轮不得改变首轮判定
+  const multiple = {
+    messages: [
+      { type: 'user', content: '竞业限制有效吗' },
+      { type: 'assistant', content: '……' },
+      { type: 'user', content: '那这种情况怎么办' }
+    ]
+  }
+  assert.equal(firstQuestionOf(multiple), '竞业限制有效吗')
+})
+
+test('首轮提问提取：识别并跳过"仅附件"的合成文案（实测会让标题退化成通用名）', () => {
+  // ask() 在"只传附件不写提问"时会把下面这句**合成文案**写进 message.content，
+  // 因此无法靠"content 是否为空"判断用户到底写没写。
+  // 不识别它 → 所有附件轮会话都叫「劳动用工问题分析」，正是本次要修的问题。
+  const synthetic = '请分析我上传的 1 份材料涉及的劳动用工问题。'
+  assert.equal(isSyntheticFilePrompt(synthetic), true)
+  assert.equal(isSyntheticFilePrompt('请分析我上传的 12 份材料涉及的劳动用工问题。'), true)
+  assert.equal(isSyntheticFilePrompt('请分析这份劳动合同'), false, '用户真实表述不得被误判')
+
+  const fileOnly = { messages: [{ type: 'user', content: synthetic, files: [{ name: '员工手册.docx' }] }] }
+  assert.equal(firstQuestionOf(fileOnly), '员工手册.docx', '附件轮必须用文件名，不能用合成文案')
+  assert.notEqual(buildConversationTitle(firstQuestionOf(fileOnly)), '请分析我上传的 1 份材料涉及的劳动用工问题')
+})
+
+test('标题提炼输出清洗：剥离代码块、前缀、引号与结尾标点', () => {
+  assert.equal(sanitizeTitle('```\n未签合同二倍工资\n```'), '未签合同二倍工资')
+  assert.equal(sanitizeTitle('标题：未签合同二倍工资'), '未签合同二倍工资')
+  assert.equal(sanitizeTitle('“未签合同二倍工资”'), '未签合同二倍工资')
+  assert.equal(sanitizeTitle('未签合同二倍工资。'), '未签合同二倍工资')
+  // 只取首个非空行：模型常在标题后附一行解释
+  assert.equal(sanitizeTitle('未签合同二倍工资\n这个标题概括了用户的问题'), '未签合同二倍工资')
+})
+
+test('标题提炼输出校验：拒绝结论性/解释性输出（标题会被当成案件定性）', () => {
+  assert.equal(validateTitle('未签合同二倍工资抗辩').ok, true)
+  // 结论性措辞——标题绝不能替用户定性
+  assert.equal(validateTitle('公司应当支付二倍工资').ok, false, '结论性标题必须拒绝')
+  // 元词汇：说明它在描述任务而不是起标题
+  assert.equal(validateTitle('用户咨询竞业限制').ok, false, '元词汇必须拒绝')
+  // 过长 / 多句成段 = 写了答案而不是标题
+  assert.equal(validateTitle('员工入职三个月没有签订书面劳动合同现在离职要求二倍工资公司该怎么应对').ok, false)
+  assert.equal(validateTitle('第一，未签合同；第二，可以主张二倍工资').ok, false)
+  assert.equal(validateTitle('回答：未签合同二倍工资').ok, false)
+  assert.equal(validateTitle('').ok, false)
+  assert.equal(validateTitle('无').ok, false, '单字标题没有区分度')
+})
+
+test('相对时间：分钟 / 小时 / 天 / 月 / 年 逐级切换', () => {
+  const now = new Date('2026-09-21T12:00:00+08:00').getTime()
+  const ago = (ms) => formatRelativeTime(now - ms, now)
+  const MIN = 60 * 1000
+  const HOUR = 60 * MIN
+  const DAY = 24 * HOUR
+
+  assert.equal(ago(0), '刚刚')
+  assert.equal(ago(59 * 1000), '刚刚', '不足 1 分钟显示刚刚')
+  assert.equal(ago(MIN), '1分钟前')
+  assert.equal(ago(30 * MIN), '30分钟前')
+  assert.equal(ago(HOUR), '1小时前')
+  assert.equal(ago(23 * HOUR), '23小时前')
+  assert.equal(ago(DAY), '1天前')
+  assert.equal(ago(2 * DAY), '2天前')
+  assert.equal(ago(29 * DAY), '29天前')
+  assert.equal(ago(30 * DAY), '1个月前')
+  assert.equal(ago(100 * DAY), '3个月前')
+  assert.equal(ago(365 * DAY), '1年前')
+  assert.equal(ago(800 * DAY), '2年前')
+})
+
+test('相对时间：边界向下取整，不出现"60分钟前"这类越界单位', () => {
+  const now = Date.now()
+  // 60 分钟那一刻必须是"1小时前"。用 Math.round 会让 45 分钟显示成"1小时前"，时间看起来会跳。
+  assert.equal(formatRelativeTime(now - 60 * 60 * 1000, now), '1小时前')
+  assert.equal(formatRelativeTime(now - 59 * 60 * 1000 - 59 * 1000, now), '59分钟前')
+  assert.ok(!/^60分钟前$/.test(formatRelativeTime(now - 60 * 60 * 1000, now)))
+})
+
+test('相对时间：未来时间与非法输入不产出负数或 NaN', () => {
+  const now = Date.now()
+  // 时钟偏差 / 服务端与浏览器不同步时会给到"未来"的时间戳
+  assert.equal(formatRelativeTime(now + 5 * 60 * 1000, now), '刚刚')
+  assert.equal(formatRelativeTime(NaN, now), '')
+  assert.equal(formatRelativeTime(0, now), '')
+  assert.equal(formatRelativeTime(undefined, now), '')
+  assert.equal(formatRelativeTime(null, now), '')
+})
+
+test('标题提炼结果下发前必须剥掉 error 与 raw（密钥片段不得进浏览器）', () => {
+  // 实测 DeepSeek 401 回包形如 `Authentication Fails, Your api key: ****test is invalid`。
+  // 被掩码纯属侥幸——上游换个格式就会把真实密钥片段下发到浏览器并可能被前端持久化。
+  const leaked = toClientResult({
+    ok: false,
+    reason: 'auth_failed',
+    error: 'API error 401: {"error":{"message":"Authentication Fails, Your api key: sk-real-key-fragment is invalid"}}',
+    raw: '模型原始输出',
+    elapsedMs: 3948
+  })
+  assert.equal(leaked.ok, false)
+  assert.equal(leaked.reason, 'auth_failed')
+  assert.equal(leaked.elapsedMs, 3948)
+  assert.equal('error' in leaked, false, 'error 字段必须被剥离')
+  assert.equal('raw' in leaked, false, 'raw 字段必须被剥离')
+  assert.ok(!JSON.stringify(leaked).includes('sk-real-key-fragment'), '序列化结果不得含密钥片段')
+
+  // 成功路径同样只下发安全字段
+  const ok = toClientResult({ ok: true, title: '未签合同二倍工资应对', raw: '未签合同二倍工资应对', elapsedMs: 1003 })
+  assert.deepEqual(ok, { ok: true, title: '未签合同二倍工资应对', elapsedMs: 1003 })
+})
+
+// ---------------------------------------------------------------------------
+console.log('\n15. 流式渲染节流（老浏览器崩溃修复）')
+
+/** 注入式假 rAF：手动触发帧，让"每帧至多一次提交"可被确定性地断言 */
+const fakeRaf = () => {
+  const queue = new Map()
+  let id = 0
+  // 受控时钟：createStreamBuffer 会用 now() 判断"距上次提交是否已满最小间隔"
+  let clock = 0
+  return {
+    requestFrame: (callback) => { id += 1; queue.set(id, callback); return id },
+    cancelFrame: (handle) => { queue.delete(handle) },
+    now: () => clock,
+    /** 时间前进；配合 frame() 模拟"每帧检查最小间隔" */
+    advance(ms) { clock += ms },
+    get pending() { return queue.size },
+    /** 触发一帧：执行并清空当前排队的回调 */
+    frame() {
+      const callbacks = [...queue.values()]
+      queue.clear()
+      callbacks.forEach((callback) => callback())
+    }
+  }
+}
+
+const fakeClock = () => {
+  let now = 0
+  const timers = new Map()
+  let id = 0
+  return {
+    schedule: (callback, delay) => { id += 1; timers.set(id, { callback, at: now + delay }); return id },
+    cancel: (handle) => { timers.delete(handle) },
+    now: () => now,
+    get pending() { return timers.size },
+    advance(ms) {
+      now += ms
+      // 只触发到期者；同一批里后调的覆盖先调的（真实 setTimeout 也不保证顺序）
+      for (const [handle, timer] of [...timers.entries()]) {
+        if (timer.at <= now) {
+          timers.delete(handle)
+          timer.callback()
+        }
+      }
+    }
+  }
+}
+
+test('流式缓冲：2713 个增量只产生 1 次提交（每帧至多一次）', () => {
+  const raf = fakeRaf()
+  const commits = []
+  const buffer = createStreamBuffer((patch) => commits.push(patch), { ...raf, minIntervalMs: 0 })
+  // 模拟实测的事件量：正文 2713 块 + 思考 2762 块
+  for (let i = 0; i < 2713; i += 1) buffer.addContent('字')
+  for (let i = 0; i < 2762; i += 1) buffer.addReasoning('思')
+  assert.equal(commits.length, 0, '未到帧边界前不得提交')
+  raf.frame()
+  assert.equal(commits.length, 1, `5475 个增量必须合并成 1 次提交，实际 ${commits.length}`)
+  assert.equal(commits[0].content.length, 2713, '正文一块都不能丢')
+  assert.equal(commits[0].reasoning.length, 2762, '思考一块都不能丢')
+})
+
+test('流式缓冲：跨帧提交时内容完整且顺序不变', () => {
+  const raf = fakeRaf()
+  const patches = []
+  const buffer = createStreamBuffer((patch) => patches.push(patch), { ...raf, minIntervalMs: 0 })
+  buffer.addContent('第一段')
+  raf.frame()
+  buffer.addContent('第二段')
+  buffer.addReasoning('思考')
+  raf.frame()
+  buffer.addContent('第三段')
+  raf.frame()
+  assert.deepEqual(patches.map((p) => p.content).filter(Boolean), ['第一段', '第二段', '第三段'])
+  // 拼接后必须与原始顺序完全一致
+  assert.equal(patches.map((p) => p.content || '').join(''), '第一段第二段第三段')
+})
+
+test('流式缓冲：flush 取走尾部增量（否则回答会少一截）', () => {
+  const raf = fakeRaf()
+  const commits = []
+  const buffer = createStreamBuffer((patch) => commits.push(patch), { ...raf, minIntervalMs: 0 })
+  buffer.addContent('已提交')
+  raf.frame()
+  buffer.addContent('尾部')      // 流恰好在此结束，帧永远不会来
+  buffer.addReasoning('尾思')
+  assert.equal(commits.length, 1)
+  const flushed = buffer.flush()
+  assert.equal(flushed.content, '尾部', 'flush 必须取出未提交的正文')
+  assert.equal(flushed.reasoning, '尾思')
+  assert.equal(commits.length, 2, 'flush 必须立即提交，不能等下一帧')
+  assert.equal(buffer.pending, false)
+  assert.equal(buffer.flush(), null, '无增量时 flush 返回 null，调用方据此跳过渲染')
+})
+
+test('流式缓冲：flush 不得重复提交同一批增量', () => {
+  const raf = fakeRaf()
+  const commits = []
+  const buffer = createStreamBuffer((patch) => commits.push(patch), { ...raf, minIntervalMs: 0 })
+  buffer.addContent('内容')
+  buffer.flush()
+  raf.frame()   // 排程应已被 flush 撤销
+  assert.equal(commits.length, 1, `flush 后帧回调不得再提交一次，实际提交 ${commits.length} 次`)
+  assert.equal(commits.map((p) => p.content).join(''), '内容', '内容不得被写两次')
+})
+
+test('流式缓冲：空增量不触发提交（空转必须可跳过）', () => {
+  const raf = fakeRaf()
+  const commits = []
+  const buffer = createStreamBuffer((patch) => commits.push(patch), { ...raf, minIntervalMs: 0 })
+  buffer.addContent('')
+  buffer.addReasoning(undefined)
+  assert.equal(buffer.pending, false)
+  assert.equal(raf.pending, 0, '空增量不得安排帧')
+  buffer.flush()
+  assert.equal(commits.length, 0, '空增量不得产生提交')
+})
+
+test('流式缓冲：contentText 可在 flush 前取到完整正文（避免异步回读丢尾部）', () => {
+  const raf = fakeRaf()
+  const buffer = createStreamBuffer(() => {}, { ...raf, minIntervalMs: 0 })
+  buffer.addContent('已提交')
+  raf.frame()
+  buffer.addContent('尾部')
+  // finally 里必须能拿到**完整**正文，用于同步写 Markdown 快照
+  assert.equal(buffer.contentText, '尾部', '未提交部分的读取')
+  buffer.flush()
+  assert.equal(buffer.contentText, '', 'flush 后缓冲清空')
+})
+
+test('节流器：首次立即执行，间隔内合并为一次尾调用', () => {
+  const clock = fakeClock()
+  const calls = []
+  const throttled = throttleWithTrailing((value) => calls.push(value), 200, clock)
+  throttled('a')
+  assert.deepEqual(calls, ['a'], '首次调用应立即执行，保证首屏不被推迟')
+  throttled('b')
+  throttled('c')
+  assert.deepEqual(calls, ['a'], '间隔内的调用必须合并')
+  clock.advance(200)
+  assert.deepEqual(calls, ['a', 'c'], '尾调用只执行最后一次（合并掉的中间值无意义）')
+})
+
+test('节流器：flush 强制执行尾部（末段内容不得丢）', () => {
+  const clock = fakeClock()
+  const calls = []
+  const throttled = throttleWithTrailing((value) => calls.push(value), 200, clock)
+  throttled('a')
+  throttled('b')          // 被节流，等 200ms
+  throttled.flush()       // 流在这里结束
+  assert.deepEqual(calls, ['a', 'b'], 'flush 必须补上尾部，否则正文停在倒数第二段')
+  clock.advance(1000)
+  assert.deepEqual(calls, ['a', 'b'], 'flush 之后不得再重复执行')
+})
+
+test('节流器：cancel 丢弃挂起调用（组件卸载后不得 setState）', () => {
+  const clock = fakeClock()
+  const calls = []
+  const throttled = throttleWithTrailing((value) => calls.push(value), 200, clock)
+  throttled('a')
+  throttled('b')
+  throttled.cancel()
+  clock.advance(1000)
+  assert.deepEqual(calls, ['a'], 'cancel 后尾调用不得执行')
+})
+
+test('节流器：Markdown 解析次数与事件量解耦（O(n²) → O(n)）', () => {
+  // 实测一轮问答 2713 个正文增量。旧实现每个都解析一次整篇 Markdown。
+  const clock = fakeClock()
+  let parses = 0
+  const throttled = throttleWithTrailing(() => { parses += 1 }, MARKDOWN_THROTTLE_MS, clock)
+  for (let i = 0; i < 2713; i += 1) {
+    throttled()
+    clock.advance(5)   // 增量约每 5ms 到达一块
+  }
+  throttled.flush()
+  // 总时长约 13.5s ÷ 200ms ≈ 68 次上限
+  assert.ok(parses <= 80, `解析次数应降到 80 次以内，实际 ${parses}（旧实现为 2713 次）`)
+  assert.ok(parses >= 2, '解析必须真的发生，否则正文不更新')
+})
+
+test('流式缓冲：最小提交间隔把渲染次数钉死（上游事件再密也不劣化）', () => {
+  const raf = fakeRaf()
+  const commits = []
+  // 模拟深度思考档实测节奏：约 66 个事件/秒（11100 块 / 168 秒），整轮 168 秒
+  const buffer = createStreamBuffer((patch) => commits.push(patch), {
+    ...raf,
+    minIntervalMs: STREAM_COMMIT_INTERVAL_MS
+  })
+  let delivered = 0
+  const FRAME_MS = 1000 / 60
+  const TOTAL_MS = 168000
+  const EVENT_EVERY = 15   // ≈66 事件/秒
+  let nextEventAt = 0
+  for (let t = 0; t < TOTAL_MS; t += FRAME_MS) {
+    raf.advance(FRAME_MS)
+    while (nextEventAt <= t) { buffer.addReasoning('思'); delivered += 1; nextEventAt += EVENT_EVERY }
+    raf.frame()
+  }
+  buffer.flush()
+
+  // 168 秒 ÷ 100ms ≈ 1680 次；给一点余量
+  assert.ok(commits.length <= 1800, `渲染次数应被钉在约 1680 次，实际 ${commits.length}`)
+  assert.ok(commits.length >= 1500, '不能节流过度导致长时间不更新')
+  assert.ok(delivered > 10000, `本用例应模拟出上万个事件，实际 ${delivered}`)
+  assert.ok(commits.length < delivered / 5, '渲染次数必须远低于事件数')
+  // 一次都不能丢
+  assert.equal(commits.reduce((n, p) => n + (p.reasoning || '').length, 0), delivered)
+})
+
+test('流式缓冲：最小间隔内的增量继续累积，不丢内容只延后显示', () => {
+  const raf = fakeRaf()
+  const commits = []
+  const buffer = createStreamBuffer((patch) => commits.push(patch), {
+    ...raf,
+    minIntervalMs: STREAM_COMMIT_INTERVAL_MS
+  })
+  buffer.addContent('A')
+  raf.frame()                                  // 首次立即提交
+  assert.deepEqual(commits.map((p) => p.content), ['A'])
+  raf.advance(10)                              // 远小于最小间隔
+  buffer.addContent('B')
+  raf.frame()
+  assert.equal(commits.length, 1, '未满最小间隔不得提交')
+  raf.advance(STREAM_COMMIT_INTERVAL_MS)
+  raf.frame()
+  assert.deepEqual(commits.map((p) => p.content), ['A', 'B'], '间隔满足后必须补交，内容不得丢')
 })
 
 // ---------------------------------------------------------------------------

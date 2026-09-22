@@ -4,6 +4,23 @@
 .labor-consult .chat-sidebar { width: 268px; flex: 0 0 268px; }
 .labor-consult.sidebar-collapsed .chat-sidebar { width: 0; flex-basis: 0; padding-right: 0; padding-left: 0; overflow: hidden; border-right-color: transparent; }
 
+/*
+ * 历史咨询条目：标题 + 相对时间两行。
+ *
+ * 时间刻意做弱（12px / #b0b0b4），它只是帮助定位会话的辅助信息，
+ * 权重不能和标题抢。整条仍是单行高度（flex 纵向排布），列表密度不变。
+ * 注意 .history-list button 上有 white-space:nowrap + overflow:hidden，
+ * 所以文字截断必须落在 .history-thread-title 上，否则时间会被一并裁掉。
+ */
+.labor-consult .history-list button { align-items: flex-start; padding: 9px 12px; }
+.labor-consult .history-list button > .history-thread-icon { margin-top: 1px; }
+.labor-consult .history-list .history-delete { margin-top: 1px; }
+.labor-consult .history-thread-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.labor-consult .history-thread-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.4; }
+.labor-consult .history-thread-time { color: #b0b0b4; font-size: 12px; font-weight: 400; line-height: 1.3; }
+.labor-consult .history-list button:hover .history-thread-time,
+.labor-consult .history-list button.selected .history-thread-time { color: #9a9a9f; }
+
 /* 侧栏底部沿用两个合同工作台的余额查询 UI（.sidebar-footer-wrap / .balance-* 来自 ContractRewritePage.css）。 */
 
 /* 对话区 */
@@ -37,7 +54,30 @@
 .labor-reasoning.is-live .labor-reasoning-head { color: #4c6b87; }
 .labor-reasoning.is-live .reasoning-pulse { animation: reasoning-pulse 1.5s ease-in-out infinite; }
 @keyframes reasoning-pulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
-.labor-reasoning-body { max-height: 260px; overflow-y: auto; padding: 2px 12px 10px; color: #6c6c73; font-size: 12.5px; line-height: 1.75; white-space: pre-wrap; word-break: break-word; }
+/*
+ * 思考正文：老浏览器崩溃的另一个根因在这里。
+ *
+ * 单条思考可达 4.7 万字，而流式期间这个节点每帧都被重写并变长。
+ *  - `overflow-anchor: none`：关闭滚动锚定。浏览器默认会为"内容变长"做锚定补偿，
+ *    与我们的自动跟随滚动方向相反，两者互相拉扯会让长思考下滚动疯狂抖动。
+ *  - `contain: content`：把布局与绘制限制在这个盒子内。没有它，盒子每变长一次，
+ *    祖先链（会话滚动容器、整页）都要重新布局——这正是老 Safari 卡死的地方。
+ *  - `contain-intrinsic-size` 不需要：max-height 已固定盒子高度上限，布局代价可控。
+ */
+.labor-reasoning-body {
+  max-height: 260px;
+  overflow-y: auto;
+  overflow-anchor: none;
+  contain: content;
+  padding: 2px 12px 10px;
+  color: #6c6c73;
+  font-size: 12.5px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* 流式期间的"已折叠前 N 字"提示：低调，不干扰思考正文的阅读节奏 */
+.labor-reasoning .reasoning-window-note { margin: 4px 0 6px; color: #a5a5ab; font-size: 11.5px; font-style: normal; }
 /* 流式期间淡出底部，暗示"还在继续" */
 .labor-reasoning.is-live .labor-reasoning-body { mask-image: linear-gradient(to bottom, #000 88%, transparent); -webkit-mask-image: linear-gradient(to bottom, #000 88%, transparent); }
 @media (prefers-reduced-motion: reduce) {
