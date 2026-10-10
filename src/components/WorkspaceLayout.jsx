@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { FileCheck2, FilePenLine, FileSearch, Gavel, Home, LogOut, MessageCircle, PanelLeft, Settings2, UserRound, X } from 'lucide-react'
+import { CalendarHeart, FileCheck2, FilePenLine, FileSearch, Gavel, HandCoins, Home, LogOut, MessageCircle, PanelLeft, Settings2, UserRound, X } from 'lucide-react'
 import { useAuth } from './AuthProvider'
 import { WorkspaceContext } from './WorkspaceContext'
 import WorkspaceConversationMenu from './WorkspaceConversationMenu'
@@ -18,7 +18,9 @@ const tools = [
   { label: '商业合同审查', icon: FileSearch, path: '/contract-rewrite', aliases: ['/tools/contract-review'] },
   { label: '商业合同起草', icon: FilePenLine, path: '/contract-draft', aliases: ['/tools/contract-draft'] },
   { label: '劳动合同分析', icon: FileCheck2, path: '/tools/labor-contract', aliases: [] },
-  { label: '劳动仲裁答辩', icon: Gavel, path: '/tools/arbitration', aliases: [] }
+  { label: '劳动仲裁答辩', icon: Gavel, path: '/tools/arbitration', aliases: [] },
+  { label: '医疗期计算器', icon: CalendarHeart, path: '/tools/medical-calculator', aliases: [], defaultPinned: false, formOnly: true },
+  { label: '养老保险测算', icon: HandCoins, path: '/tools/pension-calc1', aliases: ['/tools/pension-calc2'], defaultPinned: false, formOnly: true }
 ]
 
 const readPinnedPaths = (key) => {
@@ -60,6 +62,7 @@ export default function WorkspaceLayout() {
   const accountRef = useRef(null)
   const accountButtonRef = useRef(null)
   const current = tools.find((tool) => tool.path === pathname || tool.aliases.includes(pathname))
+  const formOnly = Boolean(current?.formOnly)
   const CurrentIcon = current?.icon || MessageCircle
   const toggleToolPin = (path) => {
     setPinnedPaths((previous) => {
@@ -135,6 +138,7 @@ export default function WorkspaceLayout() {
       const editing = event.target.matches?.('input, textarea, [contenteditable="true"]')
       if (!action) { if (event.key.toLowerCase() === 'k') event.stopImmediatePropagation(); return }
       if (editing && action !== 'search' && action !== 'settings') return
+      if (formOnly && action !== 'settings') return
       event.preventDefault()
       event.stopImmediatePropagation()
       if (action === 'settings') { setAccountOpen(false); setSettingsOpen(true) }
@@ -156,7 +160,7 @@ export default function WorkspaceLayout() {
     window.addEventListener('keydown', keys, true)
     document.addEventListener('click', links, true)
     return () => { window.removeEventListener('keydown', keys, true); document.removeEventListener('click', links, true) }
-  }, [settings.sendKey, settings.shortcuts, settings.links, conversationActions, isSideChat])
+  }, [settings.sendKey, settings.shortcuts, settings.links, conversationActions, isSideChat, formOnly])
 
   const signOut = async () => {
     setLoggingOut(true)
@@ -198,12 +202,12 @@ export default function WorkspaceLayout() {
           </div>
         </aside>
         <header className="app-workspace-topbar">
-          <button className="app-workspace-icon app-workspace-history-toggle" type="button" aria-label={sidebarCollapsed ? t("展开历史会话") : t("收起历史会话")} aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}>
+          {!formOnly && <button className="app-workspace-icon app-workspace-history-toggle" type="button" aria-label={sidebarCollapsed ? t("展开历史会话") : t("收起历史会话")} aria-expanded={!sidebarCollapsed} onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}>
             <PanelLeft size={19} strokeWidth={1.7} aria-hidden="true" />
-          </button>
-          <span className="app-workspace-topbar-divider" aria-hidden="true" />
+          </button>}
+          {!formOnly && <span className="app-workspace-topbar-divider" aria-hidden="true" />}
           <div className="app-workspace-page-title"><CurrentIcon size={18} strokeWidth={1.7} aria-hidden="true" /><strong>{t(current?.label || '法律工具')}</strong></div>
-          <WorkspaceConversationMenu key={pathname} actions={conversationActions} contextRequest={conversationMenuRequest?.path === pathname ? conversationMenuRequest : null} onCreateSide={createSideChat} />
+          {!formOnly && <WorkspaceConversationMenu key={pathname} actions={conversationActions} contextRequest={conversationMenuRequest?.path === pathname ? conversationMenuRequest : null} onCreateSide={createSideChat} />}
         </header>
         <div className={`app-workspace-stage${sideChat?.open && sideChat.path === pathname ? ' has-side-chat' : ''}`}>
           <div className="app-workspace-content"><Outlet /></div>
