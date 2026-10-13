@@ -263,6 +263,16 @@ try {
   assert.equal(sseEvents.some((item) => item.event === 'draft.complete'), false)
   assert.equal(sseEvents.some((item) => item.event === 'done'), true)
 
+  const snapshotChatResponse = await request('/api/contract-draft', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ message: '请解释当前付款条款的含义和风险。', history: [], currentDraft: updatedTask.result })
+  })
+  assert.equal(snapshotChatResponse.status, 200)
+  const snapshotChatEvents = parseSse(await snapshotChatResponse.text())
+  assert.equal(snapshotChatEvents.some((item) => item.event === 'chat.delta'), true, 'SSE fallback must recognize the separate mandatory draft without a history marker')
+  assert.equal(snapshotChatEvents.some((item) => item.event === 'draft.complete'), false)
+
   const legacyDraftResponse = await request('/api/contract-draft', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
@@ -396,7 +406,7 @@ try {
     draftWorkflow: (options) => runContractDraft({
       ...options,
       classifyType: async () => ({ profile: getContractTypeProfile('general_contract'), confidence: 'low', source: 'test' }),
-      streamFn: async function * () { yield { content: streamValue } }
+      streamFn: async function * () { yield { content: streamValue, finishReason: 'stop' } }
     })
   })
   const emptyModelTask = taskService.createTask({

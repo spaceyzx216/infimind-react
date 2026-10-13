@@ -1,3 +1,6 @@
+import { MAX_MODEL_OUTPUT_TOKENS } from '../../src/utils/context-budget.js'
+import { indexedMaterialText } from '../services/material-processing.js'
+import { splitDocument } from '../services/document-materials.js'
 import { extractText } from '../services/file-parser.js'
 import { searchEvidence, getWholeTemplateForReview, DEFAULT_EVIDENCE_LIMIT } from '../services/knowledge-base.js'
 import { buildReviewPlan, withTypeNoticeInResult, withTypeNoticeInReport } from '../services/review-plan.js'
@@ -10,37 +13,13 @@ import { reviewContract } from '../agents/contract-reviewer.js'
 import { consolidateContractFindings } from '../agents/contract-consolidator.js'
 import { rewriteContract } from '../agents/contract-rewriter.js'
 import { getFlashModel, getProModel } from '../services/llm-client.js'
+import { commercialPhaseOptions } from '../services/commercial-completion.js'
 
-export const MAX_CONTRACT_TEXT = 60000
+export const MAX_CONTRACT_TEXT = 12_000_000
 export const REVIEW_ROUNDS = 3
 
-export const ACCEPTED_TYPES = [
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/rtf',
-  'application/vnd.oasis.opendocument.text',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.oasis.opendocument.spreadsheet',
-  'application/vnd.ms-powerpoint',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'application/vnd.oasis.opendocument.presentation',
-  'text/plain',
-  'text/markdown',
-  'text/csv',
-  'text/tab-separated-values',
-  'text/html',
-  'application/json',
-  'application/xml',
-  'image/png',
-  'image/jpeg',
-  'image/webp',
-  'image/bmp',
-  'image/tiff',
-  'image/gif'
-]
-
+export { ACCEPTED_TYPES } from '../services/upload-config.js'
+import { isAcceptableFile } from '../services/upload-config.js'
 export class TaskCancelledError extends Error {
   constructor(message = '任务已取消') {
     super(message)
@@ -56,16 +35,10 @@ const dedupeKey = (item) => {
 }
 
 const modelFor = (mode) => mode === 'fast'
-  ? { model: getFlashModel(), thinking: { type: 'disabled' }, maxTokens: 2048 }
-  : { model: getProModel(), thinking: { type: 'enabled' }, reasoningEffort: 'high', maxTokens: 4096 }
+  ? { model: getFlashModel(), thinking: { type: 'disabled' }, maxTokens: MAX_MODEL_OUTPUT_TOKENS }
+  : { model: getProModel(), thinking: { type: 'enabled' }, reasoningEffort: 'high', maxTokens: MAX_MODEL_OUTPUT_TOKENS }
 
-const isValidAttachment = (file) => {
-  const name = file?.originalname || ''
-  // MIME is client-controlled. A supplied extension must be one the parser
-  // supports; MIME remains a fallback for files without an extension.
-  if (/\.[^./\\]+$/.test(name)) return /\.(pdf|doc|docx|rtf|odt|xls|xlsx|ods|ppt|pptx|odp|txt|md|markdown|csv|tsv|json|xml|html|htm|png|jpg|jpeg|webp|bmp|tif|tiff|gif)$/i.test(name)
-  return ACCEPTED_TYPES.includes(file?.mimetype)
-}
+const isValidAttachment = isAcceptableFile
 
 const checkpointValue = (getCheckpoint, stage) => {
   const value = getCheckpoint?.(stage)
@@ -186,6 +159,8 @@ const runFakeWorkflow = async ({ task, files, emit, checkpoint, getCheckpoint, i
 
 export async function runContractReview({
   task,
+  input = {},
+  signal,
   files = [],
   emit = async () => {},
   checkpoint = async () => {},
@@ -239,7 +214,7 @@ export async function runContractReview({
   let analysisReport = checkpointValue(getCheckpoint, 'analysis')?.analysisReport || ''
   if (!analysisReport) {
     await emit('stage.start', { stage: 'analysis', label: '正在分析合同结构与要素完整性' })
-    analysisReport = await analyzeContract(parsedText, (chunk) => emit('analysis.delta', { content: chunk }), modelProfile.model)
+    analysisReport = await analyzeContract(parsedText, (chunk) => emit('analysis.delta', { content: chunk }), modelProfile.model, { checkpoint, getCheckpoint, signal, mode, emit })
     await checkpoint('analysis', { analysisReport })
     await emit('stage.complete', { stage: 'analysis', summary: '合同结构分析完成', reportLength: analysisReport.length })
   } else {
@@ -255,7 +230,7 @@ export async function runContractReview({
   let wholeTemplate = checkpointValue(getCheckpoint, 'knowledge')?.wholeTemplate || null
   await emit('stage.start', { stage: 'knowledge', label: '正在检索合同条款与风险证据' })
   if (!reviewPlan) {
-    reviewPlan = buildReviewPlan({ analysisReport, contractText: parsedText, userInstruction: task.prompt })
+    reviewPlan = buildReviewPlan({ analysisReport, contractText: parsedText, userInstruction: (task.prompt || '') + '\n' + (input.materialNotice || '') + '\n全文逐字条件与引用线索：\n' + indexedMaterialText(input.materialIndex) })
     await emit('stage.progress', { stage: 'knowledge', message: `审查计划：${reviewPlan.contractType}｜${reviewPlan.topics.map((topic) => topic.label).join('、')}` })
     try {
       // 证据条数取自 knowledge-base.js 的唯一定义，避免生产与评测各写一个值
@@ -302,24 +277,19 @@ export async function runContractReview({
     for (let round = totalRoundsExecuted + 1; round <= REVIEW_ROUNDS; round += 1) {
       ensure()
       await emit('review.round', { round, total: REVIEW_ROUNDS, phase: 'start', accumulated: combinedFindings.length, message: `正在进行第 ${round} 轮审查（共 ${REVIEW_ROUNDS} 轮）${round > 1 ? `，前 ${round - 1} 轮已发现 ${combinedFindings.length} 条问题` : ''}` })
-      const roundOutput = await reviewContract({
+      const roundOutput = await reviewContract({ signal, checkpoint, getCheckpoint, mode, emit,
         contractText: parsedText,
         analysisReport,
         evidence,
         reviewPlan,
-        userInstruction: task.prompt,
+        userInstruction: (task.prompt || '') + '\n' + (input.materialNotice || '') + '\n全文逐字条件与引用线索：\n' + indexedMaterialText(input.materialIndex),
         round,
         previousFindings: accumulatedSummary,
         wholeTemplate
       }, modelProfile.model)
       let roundPayload
       try { roundPayload = extractReviewPayload(roundOutput) } catch (error) {
-        console.warn(`[task-workflow] review round ${round} payload parse failed:`, error.message)
-        roundSnapshots.push({ round, newCount: 0, newFindings: [] })
-        totalRoundsExecuted = round
-        await checkpoint('review', { combinedFindings, accumulatedSummary, roundSnapshots, totalRoundsExecuted })
-        await emit('review.round', { round, total: REVIEW_ROUNDS, phase: 'end', newFindings: [], newCount: 0, accumulated: combinedFindings.length, message: `第 ${round} 轮审查结果解析异常，已跳过` })
-        continue
+        throw Object.assign(new Error(`第 ${round} 轮审查结果无法校验；前面已核对的条款保留，请继续本次审查。`, { cause: error }), { code: 'commercial_output_invalid' })
       }
       const newFindings = []
       let dropped = 0
@@ -343,10 +313,10 @@ export async function runContractReview({
     if (reviewResult.stats.confirmed === 0) {
       await emit('stage.progress', { stage: 'review', message: '三轮未得到可定位批注，正在进行一次格式与定位复核' })
       try {
-        const recoveryOutput = await reviewContract({ contractText: parsedText, analysisReport, evidence, reviewPlan, userInstruction: `${task.prompt || '无'}\n\n【系统复核】前三轮未生成可确认的风险批注。请重新逐条审查合同，必须输出完整 JSON；只要存在风险或需完善事项，就必须给出条款位置、尽量逐字的 quote、风险和建议。不要输出行号，定位由程序完成。`, wholeTemplate }, modelProfile.model)
+        const recoveryOutput = await reviewContract({ signal, checkpoint, getCheckpoint, mode, emit, checkpointScope: 'confirmation', contractText: parsedText, analysisReport, evidence, reviewPlan, userInstruction: `${task.prompt || '无'}\n\n【系统复核】前三轮未生成可确认的风险批注。请重新逐条审查合同，必须输出完整 JSON；只要存在风险或需完善事项，就必须给出条款位置、尽量逐字的 quote、风险和建议。不要输出行号，定位由程序完成。`, wholeTemplate }, modelProfile.model)
         const recoveryResult = buildReviewResult({ contractText: parsedText, modelOutput: recoveryOutput })
         if (recoveryResult.stats.confirmed > 0 || recoveryResult.stats.generated > reviewResult.stats.generated) reviewResult = recoveryResult
-      } catch (error) { console.warn('[task-workflow] Review recovery failed:', error.message) }
+      } catch (error) { throw Object.assign(new Error('风险复核尚未完成，当前不能据此认定合同没有风险。已完成的结构分析保留。', { cause: error }), { code: 'commercial_confirmation_incomplete' }) }
     }
     await checkpoint('review', { combinedFindings, accumulatedSummary, roundSnapshots, totalRoundsExecuted, reviewResult })
   } else {
@@ -366,7 +336,7 @@ export async function runContractReview({
   if (!revisionGroups) {
     let consolidationOutput = ''
     if (reviewResult.findings.length > 1) {
-      try { consolidationOutput = await consolidateContractFindings(reviewResult.findings, modelProfile.model) } catch (error) {
+      try { consolidationOutput = await consolidateContractFindings(reviewResult.findings, modelProfile.model, { ...commercialPhaseOptions(mode, 'consolidation'), signal }) } catch (error) {
         console.warn('[task-workflow] Consolidation Agent failed, using deterministic grouping:', error.message)
         await emit('stage.progress', { stage: 'consolidation', message: '智能归并暂时不可用，正在按原文位置进行确定性归并' })
       }
@@ -390,13 +360,25 @@ export async function runContractReview({
   if (!rewritePayload) {
     rewritePayload = { contractText: parsedText, revisions: [], stats: { rounds: totalRoundsExecuted, total: 0, groups: 0, blocks: 0, modify: 0, add: 0, delete: 0 } }
     if (revisionGroups.length > 0) {
-      let rewriteOutput = await rewriteContract({ contractText: parsedText, analysisReport, findings: revisionGroups }, () => {}, modelProfile.model)
+      const completedRevisions = []
+      for (let at = 0; at < revisionGroups.length; at += 4) {
+        ensure()
+        const key = `commercial-rewrite-batch:${at}`
+        const saved = checkpointValue(getCheckpoint, key)
+        const output = saved?.output || await rewriteContract({ contractText: parsedText, analysisReport, findings: revisionGroups.slice(at, at + 4), completedRevisions },
+          () => {}, modelProfile.model, { commercialMode: mode, signal, checkpoint, emit, key })
+        await checkpoint(key, { output })
+        completedRevisions.push(...JSON.parse(output).revisions)
+        await emit('stage.progress', { stage: 'rewrite', message: `已完成 ${Math.min(at + 4, revisionGroups.length)}/${revisionGroups.length} 组条款修订。` })
+      }
+      const rewriteOutput = JSON.stringify({ revisions: completedRevisions })
       let merged = mergeRevisions(revisionGroups, rewriteOutput, parsedText)
       const missingGroups = merged.revisions.filter((rev) => !rev.hasRewrite).map((rev) => revisionGroups.find((group) => group.id === rev.findingId)).filter(Boolean)
       if (missingGroups.length) {
         try {
-          const batchOutput = await rewriteContract({ contractText: parsedText, analysisReport, findings: missingGroups.slice(0, 6) }, () => {}, modelProfile.model)
-          const batchMerged = mergeRevisions(missingGroups.slice(0, 6), batchOutput, parsedText)
+          const batchOutput = await rewriteContract({ contractText: parsedText, analysisReport, findings: missingGroups.slice(0, 4) }, () => {}, modelProfile.model,
+            { commercialMode: mode, signal, checkpoint, emit, key: 'rewrite-missing' })
+          const batchMerged = mergeRevisions(missingGroups.slice(0, 4), batchOutput, parsedText)
           const recovered = new Map(batchMerged.revisions.filter((item) => item.hasRewrite).map((item) => [item.findingId, item]))
           merged.revisions = merged.revisions.map((item) => recovered.has(item.findingId) ? { ...item, ...recovered.get(item.findingId) } : item)
         } catch (error) { console.warn('[task-workflow] Rewrite recovery failed:', error.message) }
@@ -412,6 +394,8 @@ export async function runContractReview({
   }
   await emit('stage.complete', { stage: 'rewrite', summary: rewritePayload.revisions.length ? `最终校验完成，生成 ${rewritePayload.revisions.length} 个就近修订标记` : '未发现需修订条款', revisionCount: rewritePayload.revisions.length, blockCount: rewritePayload.stats.blocks || rewritePayload.revisions.length, recovered: Boolean(rewriteCheckpoint) })
 
+  const materialBlocks = splitDocument(parsedText, { fileName: '合同原文' })
+  await checkpoint('material-coverage', { parsed: materialBlocks.length, selected: materialBlocks.map((b) => b.id), checked: materialBlocks.map((b) => b.id), partial: Boolean(input.materialIncomplete) })
   ensure()
   const reviewSession = createReviewSession({ userId: task.userId, clientId: task.id, contractText: parsedText, analysisReport, reviewReport, reviewResult })
   const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1)

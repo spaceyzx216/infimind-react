@@ -1,0 +1,466 @@
+{
+  "syntheticOnly": true,
+  "caseCount": 20,
+  "httpCaseCount": 20,
+  "expectedObservationCount": 22,
+  "detectedObservationCount": 22,
+  "isLegalAccuracy": false,
+  "referenceCount": 0,
+  "lawMetadataCount": 0,
+  "cases": [
+    {
+      "id": "T01",
+      "sourceRun": "最终风险与跨文件复验",
+      "analysisStatus": "completed",
+      "workflowOk": true,
+      "observedPoints": 0,
+      "expectedPoints": 0,
+      "findings": 0,
+      "conflicts": 0,
+      "ms": 29833,
+      "modelCalls": 9,
+      "coverageCompleted": 4,
+      "coverageTotal": 4,
+      "relationCoverage": {
+        "total": 1,
+        "completed": 1
+      },
+      "matchedCitationCount": 0,
+      "unresolvedCitationCount": 0,
+      "titles": []
+    },
+    {
+      "id": "T02",
+      "sourceRun": "最终风险与跨文件复验",
+      "analysisStatus": "completed",
+      "workflowOk": true,
+      "observedPoints": 7,
+      "expectedPoints": 7,
+      "findings": 6,
+      "conflicts": 0,
+      "ms": 102220,
+      "modelCalls": 13,
+      "coverageCompleted": 6,
+      "coverageTotal": 6,
+      "relationCoverage": {
+        "total": 1,
+        "completed": 1
+      },
+      "matchedCitationCount": 6,
+      "unresolvedCitationCount": 0,
+      "titles": [
+        "保管身份证原件并收取入职保证金",
+        "仅按本公司工龄计算年休假，排除其他单位全日制工作年限",
+        "工作能力暂不满足岗位要求被直接认定为严重违纪并当天解除且不支付补偿",
+        "无服务期或竞业限制约定仍要求辞职员工支付三万元违约金",
+        "以日常考勤为由无限期收集全部私人聊天内容且不说明用途、不限制范围",
+        "制度生效程序排除员工讨论、协商、公示或告知"
+      ]
+    },
+    {
+      "id": "T03",
+      "sourceRun": "最终隔离OCR与边界复验",
+      "analysisStatus": "completed",
+      "workflowOk": true,
+      "observedPoints": 1,
+      "expectedPoints": 1,
+      "findings": 1,
+      "conflicts": 1,
+      "ms": 66309,
+      "modelCalls": 7,
+      "coverageCompleted": 3,
+      "coverageTotal": 3,
+      "relationCoverage": {
+        "total": 3,
+        "completed": 3
+      },
+      "matchedCitationCount": 3,
+      "unresolvedCitationCount": 0,
+      "titles": [
+        "忘打卡补正期限与旷工认定规则冲突"
+      ]
+    },
+    {
+      "id": "T04",
+      "sourceRun": "最终风险与跨文件复验",
+      "analysisStatus": "completed",
+      "workflowOk": true,
+      "observedPoints": 0,
+      "expectedPoints": 0,
+      "findings": 0,
+      "conflicts": 0,
+      "ms": 27422,
+      "modelCalls": 9,
+      "coverageCompleted": 4,
+      "coverageTotal": 4,
+      "relationCoverage": {
+        "total": 1,
+        "completed": 1
+      },
+      "matchedCitationCount": 0,
+      "unresolvedCitationCount": 0,
+      "titles": []
+    },
+    {
+      "id": "T05",
+      "sourceRun": "最终隔离OCR与边界复验",
+      "analysisStatus": "completed",
+      "workflowOk": true,
+      "observedPoints": 0,
+      "expectedPoints": 0,
+      "findings": 0,
+      "conflicts": 0,
+      "ms": 9177,
+      "modelCalls": 3,
+      "coverageCompleted": 2,
+      "coverageTotal": 2,
+      "relationCoverage": {
+        "total": 0,
+        "completed": 0
+      },
+      "matchedCitationCount": 0,
+      "unresolvedCitationCount": 0,
+      "titles": []
+    },
+    {
+      "id": "T06",
+      "sourceRun": "最终风险与跨文件复验",
+      "analysisStatus": "blocked",
+      "workflowOk": true,
+      "observedPoints": 0,
+      "expectedPoints": 0,
+      "findings": 0,
+      "conflicts": 0,
+      "ms": 1546,
+      "modelCalls": 1,
+      "coverageCompleted": 0,
+      "coverageTotal": 1,
+      "relationCoverage": {
+        "total": 0,
+        "completed": 0
+      },
+      "matchedCitationCount": 0,
+      "unresolvedCitationCount": 0,
+      "titles": []
+    },
+    {
+      "id": "T07",
+      "sourceRun": "最终风险与跨文件复验",
+      "analysisStatus": "completed",
+      "workflowOk": true,
+      "observedPoints": 0,
+      "expectedPoints": 0,
+      "findings": 0,
+      "conflicts": 0,
+      "ms": 10674,
+      "modelCalls": 7,
+      "coverageCompleted": 3,
+      "coverageTotal": 3,
+      "relationCoverage": {
+        "total": 1,
+        "completed": 1
+      },
+      "matchedCitationCount": 0,
+      "unresolvedCitationCount": 0,
+      "titles": []
+    },
+    {
+      "id": "T08",
+      "sourceRun": "最终风险与跨文件复验",
+      "analysisStatus": "completed",
+      "workflowOk": true,
+      "observedPoints": 2,
+      "expectedPoints": 2,
+      "findings": 2,
+      "conflicts": 2,
+      "ms": 121133,
+      "modelCalls": 16,
+      "coverageCompleted": 8,
+      "coverageTotal": 8,
+      "relationCoverage": {
+        "total": 4,
+        "completed": 4
+      },
+      "matchedCitationCount": 4,
+      "unresolvedCitationCount": 0,
+      "titles": [
+        "忘打卡补正时限与实际出勤证明规则冲突（归并）",
+        "工资发放日冲突（归并）"
+      ]
+    },
+    {
+      "id": "T09",
+      "sourceRun": "最终隔离OCR与边界复验",
+      "analysisStatus": "completed",
+      "workflowOk": true,
+      "observedPoints": 0,
+      "expectedPoints": 0,
+      "findings": 0,
+      "conflicts": 0,
+      "ms": 19818,
+      "modelCalls": 9,
+      "coverageCompleted": 4,
+      "coverageTotal": 4,
+      "relationCoverage": {
+        "total": 1,
+        "completed": 1
+      },
+      "matchedCitationCount": 0,
+      "unresolvedCitationCount": 0,
+      "titles": []
+    },
+    {
+      "id": "T10",
+      "sourceRun": "最终隔离OCR与边界复验",
+      "analysisStatus": "completed",
+      "workflowOk": true,
+      "observedPoints": 1,
+      "expectedPoints": 1,
+      "findings": 1,
+      "conflicts": 0,
+      "ms": 22861,
+      "modelCalls": 6,
+      "coverageCompleted": 3,
+      "coverageTotal": 3,
+      "relationCoverage": {
+        "total": 0,
+        "completed": 0
+      },
+      "matchedCitationCount": 1,
+      "unresolvedCitationCount": 0,
+      "titles": [
+        "首次忘打卡即认定严重违纪并解除劳动合同"
+      ]
+    },
+    {
+      "id": "T11",
+      "sourceRun": "同块图文冲突最终复验",
+      "analysisStatus": "completed",
+      "workflowOk": true,
+      "observedPoints": 1,
+      "expectedPoints": 1,
+      "findings": 2,
+      "conflicts": 2,
+      "ms": 19047,
+      "modelCalls": 2,
+      "coverageCompleted": 2,
+      "coverageTotal": 2,
+      "relationCoverage": {
+        "total": 0,
+        "completed": 0
+      },
+      "matchedCitationCount": 4,
+      "unresolvedCitationCount": 0,
+      "titles": [
+        "补正时限规则冲突：表格允许三个工作日内补正与图片超过一个工作日按旷工处理",
+        "实际出勤证明与更正规则冲突：表格允许核实后更正与图片规定即使提供证明也不得更正"
+      ]
+    },
+    {
+      "id": "T12",
+      "sourceRun": "独立PR长文全新诊断",
+      "analysisStatus": "completed",
+      "workflowOk": true,
+      "observedPoints": 2,
+      "expectedPoints": 2,
+      "findings": 4,
+      "conflicts": 1,
+      "ms": 225620,
+      "modelCalls": 31,
+      "coverageCompleted": 13,
+      "coverageTotal": 13,
+      "relationCoverage": {
+        "total": 26,
+        "completed": 26
+      },
+      "matchedCitationCount": 6,
+      "unresolvedCitationCount": 0,
+      "titles": [
+        "员工正常辞职一律支付两万元违约金且无培训服务期或竞业限制约定",
+        "第5章“异常处理”未规定异常情形处理规则",
+        "第6章标题与第601条至第640条条文内容不匹配",
+        "忘打卡补正与旷工认定冲突"
+      ]
+    },
+    {
+      "id": "T13",
+      "sourceRun": "最终隔离OCR与边界复验",
+      "analysisStatus": "blocked",
+      "workflowOk": true,
+      "observedPoints": 0,
+      "expectedPoints": 0,
+      "findings": 0,
+      "conflicts": 0,
+      "ms": 16,
+      "modelCalls": 0,
+      "coverageCompleted": 0,
+      "coverageTotal": 0,
+      "relationCoverage": {
+        "total": 0,
+        "completed": 0
+      },
+      "matchedCitationCount": 0,
+      "unresolvedCitationCount": 0,
+      "titles": []
+    },
+    {
+      "id": "T14",
+      "sourceRun": "最终隔离OCR与边界复验",
+      "analysisStatus": "blocked",
+      "workflowOk": true,
+      "observedPoints": 0,
+      "expectedPoints": 0,
+      "findings": 0,
+      "conflicts": 0,
+      "ms": 779,
+      "modelCalls": 0,
+      "coverageCompleted": 0,
+      "coverageTotal": 1,
+      "relationCoverage": {
+        "total": 0,
+        "completed": 0
+      },
+      "matchedCitationCount": 0,
+      "unresolvedCitationCount": 0,
+      "titles": []
+    },
+    {
+      "id": "T15",
+      "sourceRun": "同块图文冲突最终复验",
+      "analysisStatus": "completed",
+      "workflowOk": true,
+      "observedPoints": 0,
+      "expectedPoints": 0,
+      "findings": 1,
+      "conflicts": 1,
+      "ms": 27407,
+      "modelCalls": 2,
+      "coverageCompleted": 2,
+      "coverageTotal": 2,
+      "relationCoverage": {
+        "total": 0,
+        "completed": 0
+      },
+      "matchedCitationCount": 3,
+      "unresolvedCitationCount": 0,
+      "titles": [
+        "补正时限与实际出勤更正规则前后矛盾"
+      ]
+    },
+    {
+      "id": "T16",
+      "sourceRun": "最终隔离OCR与边界复验",
+      "analysisStatus": "blocked",
+      "workflowOk": true,
+      "observedPoints": 0,
+      "expectedPoints": 0,
+      "findings": 0,
+      "conflicts": 0,
+      "ms": 3818,
+      "modelCalls": 1,
+      "coverageCompleted": 0,
+      "coverageTotal": 1,
+      "relationCoverage": {
+        "total": 0,
+        "completed": 0
+      },
+      "matchedCitationCount": 0,
+      "unresolvedCitationCount": 0,
+      "titles": []
+    },
+    {
+      "id": "T17",
+      "sourceRun": "最终隔离OCR与边界复验",
+      "analysisStatus": "completed",
+      "workflowOk": true,
+      "observedPoints": 1,
+      "expectedPoints": 1,
+      "findings": 1,
+      "conflicts": 0,
+      "ms": 25298,
+      "modelCalls": 2,
+      "coverageCompleted": 1,
+      "coverageTotal": 1,
+      "relationCoverage": {
+        "total": 0,
+        "completed": 0
+      },
+      "matchedCitationCount": 1,
+      "unresolvedCitationCount": 0,
+      "titles": [
+        "半打卡超一个工作日一律按旷工且拒绝凭实际出勤证明更正"
+      ]
+    },
+    {
+      "id": "T18",
+      "sourceRun": "最终风险与跨文件复验",
+      "analysisStatus": "completed",
+      "workflowOk": true,
+      "observedPoints": 7,
+      "expectedPoints": 7,
+      "findings": 7,
+      "conflicts": 0,
+      "ms": 54189,
+      "modelCalls": 5,
+      "coverageCompleted": 2,
+      "coverageTotal": 2,
+      "relationCoverage": {
+        "total": 1,
+        "completed": 1
+      },
+      "matchedCitationCount": 7,
+      "unresolvedCitationCount": 0,
+      "titles": [
+        "允许正常劳动工资低于最低工资且不补差额",
+        "强制普通标准工时员工每周额外无偿加班且不补休",
+        "一次普通记录错误即可扣除当月全部工资",
+        "怀孕后可直接解除劳动合同并取消全部产假",
+        "要求员工放弃工伤认定和全部工伤待遇",
+        "仅录用未婚未育女性且结婚或生育即辞退",
+        "所有岗位离职后强制两年竞业限制且无补偿"
+      ]
+    },
+    {
+      "id": "T19",
+      "sourceRun": "最终隔离OCR与边界复验",
+      "analysisStatus": "completed",
+      "workflowOk": true,
+      "observedPoints": 0,
+      "expectedPoints": 0,
+      "findings": 0,
+      "conflicts": 0,
+      "ms": 32001,
+      "modelCalls": 5,
+      "coverageCompleted": 2,
+      "coverageTotal": 2,
+      "relationCoverage": {
+        "total": 1,
+        "completed": 1
+      },
+      "matchedCitationCount": 0,
+      "unresolvedCitationCount": 0,
+      "titles": []
+    },
+    {
+      "id": "T20",
+      "sourceRun": "OCR异常进程隔离复验",
+      "analysisStatus": "blocked",
+      "workflowOk": true,
+      "observedPoints": 0,
+      "expectedPoints": 0,
+      "findings": 0,
+      "conflicts": 0,
+      "ms": 1561,
+      "modelCalls": 0,
+      "coverageCompleted": 0,
+      "coverageTotal": 0,
+      "relationCoverage": {
+        "total": 0,
+        "completed": 0
+      },
+      "matchedCitationCount": 0,
+      "unresolvedCitationCount": 0,
+      "titles": []
+    }
+  ]
+}

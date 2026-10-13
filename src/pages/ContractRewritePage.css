@@ -202,3 +202,18 @@
 .contract-chat .history-list:not(.task-list) > button { min-height: 56px; }
 .contract-chat .composer-wrap { flex-direction: column; align-items: center; gap: 8px; left: 0; }
 @media (max-width: 760px) { .contract-chat .chat-sidebar { display: none; } }
+
+/* 合同审查沿用用工咨询的正文宽度、字号和标题层级。 */
+.contract-review:not(.document-expanded) .conversation-inner { width: min(820px, calc(100% - 56px)); }
+.contract-review .assistant-content { font-size: 15px; line-height: 1.85; color: #232326; }
+.contract-review .assistant-content p { font-size: inherit; line-height: inherit; }
+.contract-review .assistant-content h1, .contract-review .assistant-content h2 { font-size: 17px; line-height: 1.45; }
+.contract-review .assistant-content h3 { margin: 18px 0 8px; font-size: 15.5px; }
+.contract-review .assistant-content h4 { font-size: 15px; }
+.contract-review .assistant-content ul, .contract-review .assistant-content ol { padding-left: 22px; }
+.contract-review .assistant-content table { font-size: 13.5px; }
+.contract-review .assistant-content th, .contract-review .assistant-content td { padding: 8px 10px; }
+.contract-review .finding-risk p { margin: 0; font-size: inherit; line-height: inherit; }
+@media (max-width: 760px) {
+  .contract-review:not(.document-expanded) .conversation-inner { width: calc(100% - 30px); }
+}

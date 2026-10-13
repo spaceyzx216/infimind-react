@@ -1,3 +1,4 @@
+import MaterialReviewPanel from '../components/MaterialReviewPanel.jsx'
 import { useComposerSend } from '../hooks/useComposerSend'
 import QueuedMessages from '../components/QueuedMessages'
 import SideChatEmptyState from '../components/SideChatEmptyState'
@@ -601,7 +602,7 @@ export default function LaborArbitrationPage() {
           </div>
         </div>
 
-        <div className="composer-wrap"><div className="composer"><QueuedMessages composer={queuedComposer} />
+        <div className="composer-wrap"><MaterialReviewPanel taskId={[...(activeConversation?.messages || [])].reverse().find((m) => m.taskId)?.taskId || activeConversation?.taskId} running={Boolean(activeRequest.loading)} /><div className="composer"><QueuedMessages composer={queuedComposer} />
           <textarea value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); void submit() } }} placeholder={readOnly ? readOnlyMessage : activeRequest.loading ? t("输入新问题并发送可停止当前回答；留空点击停止…") : hasAnalysis ? t("补充案件事实、上传新证据，或继续询问…") : t("描述公司的仲裁案件，也可上传仲裁申请书、答辩意见或证据材料…")} disabled={readOnly} />
           {files.length > 0 && <div className="pending-files">{files.map((file) => <span key={`${file.name}-${file.lastModified}`} title={`${file.name} · ${formatSize(file.size)}`}><FileText size={14} />{file.name}<button type="button" aria-label={(t("移除 ") + (file.name))} onClick={() => setFiles((items) => items.filter((item) => item !== file))}><X size={13} /></button></span>)}</div>}
           <div className="composer-bottom"><ToolComposerControls onUpload={() => fileInputRef.current?.click()} uploadLabel={t("上传仲裁材料")} disabled={readOnly} mode={mode} onModeChange={setMode} messages={activeConversation.messages.map((message) => ({ ...message, content: historyText(message) }))} question={question} hasPendingFiles={files.length > 0}>

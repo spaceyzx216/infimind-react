@@ -1,3 +1,5 @@
+import { selectMaterialBlocks, formatMaterialBlocks } from '../services/document-materials.js'
+import { indexedMaterialText } from '../services/material-processing.js'
 import { chatDetailed, getFlashModel } from '../services/llm-client.js'
 import { createLaborContractRedactor } from '../services/labor-contract-redaction.js'
 import { extractQueryTerms } from '../services/cjk-tokenizer.js'
@@ -45,7 +47,9 @@ export async function runStagedArbitration({ task = {}, input = {}, documents, w
   // while taking its selected suffix, otherwise statements would share an ID.
   const userMessages = rawUserMessages.slice(rawUserMessages.length - selectedMessages.history.length)
   if (selectedMessages.droppedMessages) warnings.push('较早企业陈述未纳入本轮；涉及早期事实时请补充原文，不能以旧分析替代。')
-  const selected = selectArbitrationMaterialText(documents, userMessage, 80000).map((doc) => ({
+  const materialSelection = selectMaterialBlocks(documents, userMessage)
+  const indexText = indexedMaterialText(input.materialIndex)
+  const selected = (input.materialIndex?.length ? documents.map((doc) => ({ ...doc, text: formatMaterialBlocks(materialSelection.blocks.filter((b) => b.fileId === doc.fileId)) + '\n' + indexedMaterialText(input.materialIndex.filter((e) => e.fileId === doc.fileId)), partial: materialSelection.coverage.partial })) : selectArbitrationMaterialText(documents, userMessage, 80000)).map((doc) => ({
     ...doc, originalText: documents.find((original) => original.fileId === doc.fileId && original.fileName === doc.fileName)?.text || doc.text
   }))
   const sources = buildCaseSources(selected, userMessages)
@@ -60,7 +64,7 @@ export async function runStagedArbitration({ task = {}, input = {}, documents, w
   const redactor = createLaborContractRedactor({ documents: selected, extraTexts: [userMessages, previous],
     categories: ['phone', 'identity', 'email', 'business-id', 'bank-account'] })
   const options = { model: getFlashModel(), thinking: { type: input.mode === 'fast' ? 'disabled' : 'enabled' },
-    reasoningEffort: 'high', temperature: 0.2, maxTokens: input.mode === 'fast' ? OUTPUT_RESERVE_TOKENS : OUTPUT_RESERVE_TOKENS * 2,
+    reasoningEffort: 'high', temperature: 0.2, maxTokens: OUTPUT_RESERVE_TOKENS,
     requestTimeoutMs: input.mode === 'fast' ? 180000 : 300000, maxAttempts: 1,
     responseFormat: { type: 'json_object' }, signal }
   const calls = []
@@ -76,7 +80,7 @@ export async function runStagedArbitration({ task = {}, input = {}, documents, w
     const masked = redactor.mask(JSON.stringify(context))
     if (estimateTokens(prompt) + estimateTokens(masked) + options.maxTokens + CONTEXT_SAFETY_TOKENS > CONTEXT_WINDOW_TOKENS) throw stageError('本阶段上下文超过模型预算，请精简材料或按请求分项继续。', 'arbitration_output_truncated')
     const response = await callModel(prompt, masked, { ...options,
-      ...(stage.startsWith('arbitration_review_') ? { maxTokens: input.mode === 'fast' ? 4096 : 8192 } : {}) })
+      maxTokens: OUTPUT_RESERVE_TOKENS })
     ensureActive()
     calls.push({ stage, model: response.model || options.model, usage: response.usage || null,
       promptHash: hash(prompt), inputHash: hash(masked), estimatedPromptTokens: estimateTokens(prompt) + estimateTokens(masked) + 64 })
@@ -132,6 +136,7 @@ export async function runStagedArbitration({ task = {}, input = {}, documents, w
     reviewNotes.push(...list(reviewed.notes).map(str))
     return errors
   }
+  await checkpoint('material-coverage', { ...materialSelection.coverage, indexed: (input.materialIndex || []).map((e) => e.blockId), mode: 'case-index-and-request-selection' })
   const compactSources = sources.map(({ originalText, ...source }) => source)
   const previousUsable = previous && previous.materialSignature === materialHash
     && previous.sources.every((source) => activeSourceIds.has(source.id))
@@ -140,7 +145,7 @@ export async function runStagedArbitration({ task = {}, input = {}, documents, w
   if (fakeLlm) return { schemaVersion: 2, kind: 'analysis', answer: '模型桩只验证流程，不生成法律结论。',
     claims: [], overallRisk: 'unknown', riskBasis: [], followUpQuestions: ['请提供仲裁请求和案件材料。'], defenseDraft: '', warnings }
   const extracted = await runStage('arbitration_case', '正在梳理请求与材料来源…', CASE_RECORD_PROMPT,
-    { message: userMessage, previousCaseRecord: previous, materialChanged: !previousUsable, sources: compactSources }, (value) => {
+    { message: userMessage, materialNotice: input.materialNotice || '', indexText, previousCaseRecord: previous, materialChanged: !previousUsable, sources: compactSources }, (value) => {
       if (!['update', 'question', 'draft'].includes(value.intent)) return ['必须返回用户意图intent']
       if (value.unchanged === true && previousUsable) return []
       if (!Array.isArray(value.requests) || !Array.isArray(value.facts)) return ['必须返回requests和facts数组']

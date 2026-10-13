@@ -1,3 +1,4 @@
+import MaterialReviewPanel from '../components/MaterialReviewPanel.jsx'
 import { useComposerSend } from '../hooks/useComposerSend'
 import QueuedMessages from '../components/QueuedMessages'
 import SideChatEmptyState from '../components/SideChatEmptyState'
@@ -1195,7 +1196,7 @@ export default function LaborContractAnalysisPage() {
     ? hasComposerInput ? '停止当前任务并发送' : '停止生成'
     : files.length || !task ? '开始分析' : '发送'
   const composer = (
-    <div className="composer-wrap">
+    <div className="composer-wrap"><MaterialReviewPanel taskId={task?.id} running={isRunning} />
       <form
         className="composer lca-composer"
         onSubmit={handleComposerSubmit}

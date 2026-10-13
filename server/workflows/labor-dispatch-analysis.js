@@ -1,3 +1,4 @@
+import { MAX_MODEL_OUTPUT_TOKENS } from '../../src/utils/context-budget.js'
 import { extractText } from '../services/file-parser.js'
 import { searchEvidence, DEFAULT_EVIDENCE_LIMIT } from '../services/knowledge-base.js'
 import { listLawsForBaseline, resolveLawStatus } from '../services/law-whitelist.js'
@@ -200,7 +201,7 @@ export function createLaborDispatchAnalysisWorkflow({
 } = {}) {
   const optionsFor = ({ mode, signal, requestTimeoutMs, maxTokens }) => ({
     model: mode === 'fast' ? getFlashModel() : getProModel(), temperature: 0.15,
-    maxTokens: maxTokens || (mode === 'fast' ? 8192 : 16384),
+    maxTokens: maxTokens || MAX_MODEL_OUTPUT_TOKENS,
     thinking: { type: mode === 'fast' ? 'disabled' : 'enabled' },
     ...(mode === 'fast' ? {} : { reasoningEffort: 'low' }),
     responseFormat: { type: 'json_object' }, signal, requestTimeoutMs, maxAttempts: 1
@@ -241,7 +242,7 @@ export function createLaborDispatchAnalysisWorkflow({
           if (content) documents.push({
             fileId: String(file.id || ''), fileName: String(file.originalname || file.originalName || '上传文件'),
             role: input.fileRefs?.find((ref) => ref.id === file.id)?.role || input.fileRoles?.[index] || '',
-            pageCount: Number(result?.pageCount) || null, text: content
+            pageCount: Number(result?.pageCount) || null, text: content, parseMetadata: result.metadata
           })
           else parseErrors.push(`材料 ${index + 1}：未提取到可分析文本`)
         } catch (error) {

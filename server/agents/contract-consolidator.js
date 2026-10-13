@@ -1,3 +1,4 @@
+import { MAX_MODEL_OUTPUT_TOKENS } from '../../src/utils/context-budget.js'
 import { chat, getProModel } from '../services/llm-client.js'
 import { AGENT_4_SYSTEM_PROMPT, buildConsolidationUserMessage } from '../prompts/agent-4-consolidation.js'
 
@@ -9,7 +10,7 @@ export async function consolidateContractFindings(findings = [], model = getProM
   return chat(AGENT_4_SYSTEM_PROMPT, buildConsolidationUserMessage(findings), {
     model,
     temperature: 0,
-    maxTokens: 4096,
+    maxTokens: MAX_MODEL_OUTPUT_TOKENS,
     ...options
   })
 }

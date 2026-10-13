@@ -163,6 +163,13 @@ export function createBusinessDatabase(filename = process.env.BUSINESS_DB_PATH |
       AND thread_id IS NOT NULL
       AND status IN ('queued', 'running', 'retry_waiting', 'cancel_requested')
   `)
+  database.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_active_handbook_thread
+    ON tasks(user_id, thread_id)
+    WHERE product_id = 'handbook-diagnosis'
+      AND thread_id IS NOT NULL
+      AND status IN ('queued', 'running', 'retry_waiting', 'cancel_requested')
+  `)
   return database
 }
 

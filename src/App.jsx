@@ -6,6 +6,7 @@ import ContractRewritePage from './pages/ContractRewritePage'
 import ContractDraftPage from './pages/ContractDraftPage'
 import LaborConsultPage from './pages/LaborConsultPage'
 import LaborContractAnalysisPage from './pages/LaborContractAnalysisPage'
+import HandbookDiagnosisPage from './pages/HandbookDiagnosisPage'
 import LaborArbitrationPage from './pages/LaborArbitrationPage'
 import AuthPage from './pages/AuthPage'
 import ToolConversationPage from './pages/ToolConversationPage'
@@ -64,6 +65,7 @@ function App() {
               <Route path="/tools/labor-consult" element={<LaborConsultPage />} />
               <Route path="/tools/labor-contract" element={<LaborContractAnalysisPage />} />
               <Route path="/tools/arbitration" element={<LaborArbitrationPage />} />
+              <Route path="/tools/handbook" element={<HandbookDiagnosisPage />} />
               <Route path="/tools/medical-calculator" element={<MedicalCalculatorPage />} />
               <Route path="/tools/pension-calc1" element={<PensionCalculationPage toolId="pension-calc1" />} />
               <Route path="/tools/pension-calc2" element={<PensionCalculationPage toolId="pension-calc2" />} />

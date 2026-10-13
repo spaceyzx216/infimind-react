@@ -1,0 +1,2723 @@
+{
+  "syntheticOnly": true,
+  "annotationStatus": "assistant-authored-frozen-not-independent-gold",
+  "scope": "Reference snippet ranking on fabricated rules; no claim about legal validity or body-conflict recall. Same-author evaluation, not blind testing.",
+  "k": 2,
+  "corpusHash": "2d7fc7b79a0c8146ea09b25d8dc5b2520a2e5bb7faf207d27a90b290e30b79b5",
+  "embedding": {
+    "executed": true,
+    "model": "Pro/BAAI/bge-m3",
+    "dimensions": 1024,
+    "inputCount": 44,
+    "milliseconds": 748.9292
+  },
+  "results": {
+    "lexical": {
+      "all": {
+        "answerableCount": 20,
+        "noAnswerCount": 4,
+        "hits": 22,
+        "returned": 35,
+        "expected": 25,
+        "precisionAtK": 0.55,
+        "recallMicroAtK": 0.88,
+        "mrrAtK": 0.875,
+        "noAnswerReturnedCount": 1,
+        "cases": [
+          {
+            "id": "D01",
+            "selected": [
+              {
+                "id": "arrival",
+                "score": 12.267449672917193
+              },
+              {
+                "id": "field",
+                "score": 7.832672472857782
+              }
+            ],
+            "gold": [
+              "arrival"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "D02",
+            "selected": [
+              {
+                "id": "pay",
+                "score": 9.486940148245218
+              },
+              {
+                "id": "bonus",
+                "score": 3.3978952727983707
+              }
+            ],
+            "gold": [
+              "pay"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "D03",
+            "selected": [
+              {
+                "id": "correction",
+                "score": 31.54222480972011
+              },
+              {
+                "id": "leave",
+                "score": 7.832672472857782
+              }
+            ],
+            "gold": [
+              "correction"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "D04",
+            "selected": [
+              {
+                "id": "leave",
+                "score": 19.26713462634054
+              }
+            ],
+            "gold": [
+              "leave"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "D05",
+            "selected": [
+              {
+                "id": "holiday",
+                "score": 40.0693567154369
+              },
+              {
+                "id": "weekend",
+                "score": 21.990835475998196
+              }
+            ],
+            "gold": [
+              "holiday"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "D06",
+            "selected": [
+              {
+                "id": "notice",
+                "score": 17.32725313156538
+              },
+              {
+                "id": "discussion",
+                "score": 11.884835421043586
+              }
+            ],
+            "gold": [
+              "notice"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S01",
+            "selected": [
+              {
+                "id": "arrival",
+                "score": 3.044522437723423
+              }
+            ],
+            "gold": [
+              "arrival"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S02",
+            "selected": [
+              {
+                "id": "pay",
+                "score": 3.044522437723423
+              },
+              {
+                "id": "bonus",
+                "score": 3.044522437723423
+              }
+            ],
+            "gold": [
+              "pay"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S03",
+            "selected": [
+              {
+                "id": "absence",
+                "score": 1.791759469228055
+              },
+              {
+                "id": "correction",
+                "score": 1.791759469228055
+              }
+            ],
+            "gold": [
+              "correction"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S04",
+            "selected": [],
+            "gold": [
+              "leave"
+            ],
+            "hits": 0,
+            "missed": [
+              "leave"
+            ]
+          },
+          {
+            "id": "S05",
+            "selected": [
+              {
+                "id": "ability",
+                "score": 7.089044875446846
+              },
+              {
+                "id": "holiday",
+                "score": 3.2188758248682006
+              }
+            ],
+            "gold": [
+              "ability"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S06",
+            "selected": [
+              {
+                "id": "secret",
+                "score": 3.044522437723423
+              }
+            ],
+            "gold": [
+              "secret"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S07",
+            "selected": [
+              {
+                "id": "holiday",
+                "score": 3.2188758248682006
+              },
+              {
+                "id": "weekend",
+                "score": 3.2188758248682006
+              }
+            ],
+            "gold": [
+              "discussion"
+            ],
+            "hits": 0,
+            "missed": [
+              "discussion"
+            ]
+          },
+          {
+            "id": "S08",
+            "selected": [
+              {
+                "id": "termination",
+                "score": 7.069874128458572
+              },
+              {
+                "id": "holiday",
+                "score": 4.199705077879927
+              }
+            ],
+            "gold": [
+              "termination"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "C01",
+            "selected": [
+              {
+                "id": "arrival",
+                "score": 11.267449672917191
+              },
+              {
+                "id": "field",
+                "score": 9.230567745656153
+              }
+            ],
+            "gold": [
+              "arrival",
+              "field"
+            ],
+            "hits": 2,
+            "missed": []
+          },
+          {
+            "id": "C02",
+            "selected": [
+              {
+                "id": "visitor",
+                "score": 15.30405130820842
+              },
+              {
+                "id": "correction",
+                "score": 7.226536669287466
+              }
+            ],
+            "gold": [
+              "visitor"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "C03",
+            "selected": [
+              {
+                "id": "bonus",
+                "score": 24.152285093960778
+              },
+              {
+                "id": "pay",
+                "score": 20.36413505882642
+              }
+            ],
+            "gold": [
+              "pay",
+              "bonus"
+            ],
+            "hits": 2,
+            "missed": []
+          },
+          {
+            "id": "C04",
+            "selected": [
+              {
+                "id": "discipline",
+                "score": 8.118286292245504
+              },
+              {
+                "id": "weekday",
+                "score": 5.616771097666572
+              }
+            ],
+            "gold": [
+              "ability",
+              "discipline"
+            ],
+            "hits": 1,
+            "missed": [
+              "ability"
+            ]
+          },
+          {
+            "id": "C05",
+            "selected": [
+              {
+                "id": "weekday",
+                "score": 24.98854666695538
+              },
+              {
+                "id": "weekend",
+                "score": 11.705815973113419
+              }
+            ],
+            "gold": [
+              "weekend",
+              "weekday"
+            ],
+            "hits": 2,
+            "missed": []
+          },
+          {
+            "id": "C06",
+            "selected": [
+              {
+                "id": "secret",
+                "score": 37.34565586577924
+              },
+              {
+                "id": "competition",
+                "score": 17.785266909588593
+              }
+            ],
+            "gold": [
+              "secret",
+              "competition"
+            ],
+            "hits": 2,
+            "missed": []
+          },
+          {
+            "id": "N01",
+            "selected": [],
+            "gold": [],
+            "hits": 0,
+            "missed": []
+          },
+          {
+            "id": "N02",
+            "selected": [],
+            "gold": [],
+            "hits": 0,
+            "missed": []
+          },
+          {
+            "id": "N03",
+            "selected": [],
+            "gold": [],
+            "hits": 0,
+            "missed": []
+          },
+          {
+            "id": "N04",
+            "selected": [
+              {
+                "id": "arrival",
+                "score": 8.869554400118822
+              },
+              {
+                "id": "field",
+                "score": 4.434777200059411
+              }
+            ],
+            "gold": [],
+            "hits": 0,
+            "missed": []
+          }
+        ]
+      },
+      "groups": {
+        "direct": {
+          "answerableCount": 6,
+          "noAnswerCount": 0,
+          "hits": 6,
+          "returned": 11,
+          "expected": 6,
+          "precisionAtK": 0.5,
+          "recallMicroAtK": 1,
+          "mrrAtK": 1,
+          "noAnswerReturnedCount": 0,
+          "cases": [
+            {
+              "id": "D01",
+              "selected": [
+                {
+                  "id": "arrival",
+                  "score": 12.267449672917193
+                },
+                {
+                  "id": "field",
+                  "score": 7.832672472857782
+                }
+              ],
+              "gold": [
+                "arrival"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "D02",
+              "selected": [
+                {
+                  "id": "pay",
+                  "score": 9.486940148245218
+                },
+                {
+                  "id": "bonus",
+                  "score": 3.3978952727983707
+                }
+              ],
+              "gold": [
+                "pay"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "D03",
+              "selected": [
+                {
+                  "id": "correction",
+                  "score": 31.54222480972011
+                },
+                {
+                  "id": "leave",
+                  "score": 7.832672472857782
+                }
+              ],
+              "gold": [
+                "correction"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "D04",
+              "selected": [
+                {
+                  "id": "leave",
+                  "score": 19.26713462634054
+                }
+              ],
+              "gold": [
+                "leave"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "D05",
+              "selected": [
+                {
+                  "id": "holiday",
+                  "score": 40.0693567154369
+                },
+                {
+                  "id": "weekend",
+                  "score": 21.990835475998196
+                }
+              ],
+              "gold": [
+                "holiday"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "D06",
+              "selected": [
+                {
+                  "id": "notice",
+                  "score": 17.32725313156538
+                },
+                {
+                  "id": "discussion",
+                  "score": 11.884835421043586
+                }
+              ],
+              "gold": [
+                "notice"
+              ],
+              "hits": 1,
+              "missed": []
+            }
+          ]
+        },
+        "semantic": {
+          "answerableCount": 8,
+          "noAnswerCount": 0,
+          "hits": 6,
+          "returned": 12,
+          "expected": 8,
+          "precisionAtK": 0.375,
+          "recallMicroAtK": 0.75,
+          "mrrAtK": 0.6875,
+          "noAnswerReturnedCount": 0,
+          "cases": [
+            {
+              "id": "S01",
+              "selected": [
+                {
+                  "id": "arrival",
+                  "score": 3.044522437723423
+                }
+              ],
+              "gold": [
+                "arrival"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S02",
+              "selected": [
+                {
+                  "id": "pay",
+                  "score": 3.044522437723423
+                },
+                {
+                  "id": "bonus",
+                  "score": 3.044522437723423
+                }
+              ],
+              "gold": [
+                "pay"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S03",
+              "selected": [
+                {
+                  "id": "absence",
+                  "score": 1.791759469228055
+                },
+                {
+                  "id": "correction",
+                  "score": 1.791759469228055
+                }
+              ],
+              "gold": [
+                "correction"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S04",
+              "selected": [],
+              "gold": [
+                "leave"
+              ],
+              "hits": 0,
+              "missed": [
+                "leave"
+              ]
+            },
+            {
+              "id": "S05",
+              "selected": [
+                {
+                  "id": "ability",
+                  "score": 7.089044875446846
+                },
+                {
+                  "id": "holiday",
+                  "score": 3.2188758248682006
+                }
+              ],
+              "gold": [
+                "ability"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S06",
+              "selected": [
+                {
+                  "id": "secret",
+                  "score": 3.044522437723423
+                }
+              ],
+              "gold": [
+                "secret"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S07",
+              "selected": [
+                {
+                  "id": "holiday",
+                  "score": 3.2188758248682006
+                },
+                {
+                  "id": "weekend",
+                  "score": 3.2188758248682006
+                }
+              ],
+              "gold": [
+                "discussion"
+              ],
+              "hits": 0,
+              "missed": [
+                "discussion"
+              ]
+            },
+            {
+              "id": "S08",
+              "selected": [
+                {
+                  "id": "termination",
+                  "score": 7.069874128458572
+                },
+                {
+                  "id": "holiday",
+                  "score": 4.199705077879927
+                }
+              ],
+              "gold": [
+                "termination"
+              ],
+              "hits": 1,
+              "missed": []
+            }
+          ]
+        },
+        "conditions": {
+          "answerableCount": 6,
+          "noAnswerCount": 0,
+          "hits": 10,
+          "returned": 12,
+          "expected": 11,
+          "precisionAtK": 0.8333333333333334,
+          "recallMicroAtK": 0.9090909090909091,
+          "mrrAtK": 1,
+          "noAnswerReturnedCount": 0,
+          "cases": [
+            {
+              "id": "C01",
+              "selected": [
+                {
+                  "id": "arrival",
+                  "score": 11.267449672917191
+                },
+                {
+                  "id": "field",
+                  "score": 9.230567745656153
+                }
+              ],
+              "gold": [
+                "arrival",
+                "field"
+              ],
+              "hits": 2,
+              "missed": []
+            },
+            {
+              "id": "C02",
+              "selected": [
+                {
+                  "id": "visitor",
+                  "score": 15.30405130820842
+                },
+                {
+                  "id": "correction",
+                  "score": 7.226536669287466
+                }
+              ],
+              "gold": [
+                "visitor"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "C03",
+              "selected": [
+                {
+                  "id": "bonus",
+                  "score": 24.152285093960778
+                },
+                {
+                  "id": "pay",
+                  "score": 20.36413505882642
+                }
+              ],
+              "gold": [
+                "pay",
+                "bonus"
+              ],
+              "hits": 2,
+              "missed": []
+            },
+            {
+              "id": "C04",
+              "selected": [
+                {
+                  "id": "discipline",
+                  "score": 8.118286292245504
+                },
+                {
+                  "id": "weekday",
+                  "score": 5.616771097666572
+                }
+              ],
+              "gold": [
+                "ability",
+                "discipline"
+              ],
+              "hits": 1,
+              "missed": [
+                "ability"
+              ]
+            },
+            {
+              "id": "C05",
+              "selected": [
+                {
+                  "id": "weekday",
+                  "score": 24.98854666695538
+                },
+                {
+                  "id": "weekend",
+                  "score": 11.705815973113419
+                }
+              ],
+              "gold": [
+                "weekend",
+                "weekday"
+              ],
+              "hits": 2,
+              "missed": []
+            },
+            {
+              "id": "C06",
+              "selected": [
+                {
+                  "id": "secret",
+                  "score": 37.34565586577924
+                },
+                {
+                  "id": "competition",
+                  "score": 17.785266909588593
+                }
+              ],
+              "gold": [
+                "secret",
+                "competition"
+              ],
+              "hits": 2,
+              "missed": []
+            }
+          ]
+        },
+        "no-answer": {
+          "answerableCount": 0,
+          "noAnswerCount": 4,
+          "hits": 0,
+          "returned": 0,
+          "expected": 0,
+          "precisionAtK": null,
+          "recallMicroAtK": null,
+          "mrrAtK": null,
+          "noAnswerReturnedCount": 1,
+          "cases": [
+            {
+              "id": "N01",
+              "selected": [],
+              "gold": [],
+              "hits": 0,
+              "missed": []
+            },
+            {
+              "id": "N02",
+              "selected": [],
+              "gold": [],
+              "hits": 0,
+              "missed": []
+            },
+            {
+              "id": "N03",
+              "selected": [],
+              "gold": [],
+              "hits": 0,
+              "missed": []
+            },
+            {
+              "id": "N04",
+              "selected": [
+                {
+                  "id": "arrival",
+                  "score": 8.869554400118822
+                },
+                {
+                  "id": "field",
+                  "score": 4.434777200059411
+                }
+              ],
+              "gold": [],
+              "hits": 0,
+              "missed": []
+            }
+          ]
+        }
+      }
+    },
+    "vector": {
+      "all": {
+        "answerableCount": 20,
+        "noAnswerCount": 4,
+        "hits": 25,
+        "returned": 40,
+        "expected": 25,
+        "precisionAtK": 0.625,
+        "recallMicroAtK": 1,
+        "mrrAtK": 1,
+        "noAnswerReturnedCount": 4,
+        "cases": [
+          {
+            "id": "D01",
+            "selected": [
+              {
+                "id": "arrival",
+                "score": 0.7424208847849952
+              },
+              {
+                "id": "field",
+                "score": 0.6530202676431689
+              }
+            ],
+            "gold": [
+              "arrival"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "D02",
+            "selected": [
+              {
+                "id": "pay",
+                "score": 0.7138521312572703
+              },
+              {
+                "id": "bonus",
+                "score": 0.5912219679009647
+              }
+            ],
+            "gold": [
+              "pay"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "D03",
+            "selected": [
+              {
+                "id": "correction",
+                "score": 0.770071460860874
+              },
+              {
+                "id": "leave",
+                "score": 0.5979559560246197
+              }
+            ],
+            "gold": [
+              "correction"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "D04",
+            "selected": [
+              {
+                "id": "leave",
+                "score": 0.7059710734348618
+              },
+              {
+                "id": "correction",
+                "score": 0.5305495389932015
+              }
+            ],
+            "gold": [
+              "leave"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "D05",
+            "selected": [
+              {
+                "id": "holiday",
+                "score": 0.7939692479996288
+              },
+              {
+                "id": "weekend",
+                "score": 0.7221720621396929
+              }
+            ],
+            "gold": [
+              "holiday"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "D06",
+            "selected": [
+              {
+                "id": "notice",
+                "score": 0.7204694093553835
+              },
+              {
+                "id": "discussion",
+                "score": 0.4973335675359402
+              }
+            ],
+            "gold": [
+              "notice"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S01",
+            "selected": [
+              {
+                "id": "arrival",
+                "score": 0.7018056728418801
+              },
+              {
+                "id": "field",
+                "score": 0.6472621345330805
+              }
+            ],
+            "gold": [
+              "arrival"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S02",
+            "selected": [
+              {
+                "id": "pay",
+                "score": 0.697826746495689
+              },
+              {
+                "id": "bonus",
+                "score": 0.621262811527571
+              }
+            ],
+            "gold": [
+              "pay"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S03",
+            "selected": [
+              {
+                "id": "correction",
+                "score": 0.6068068028580786
+              },
+              {
+                "id": "visitor",
+                "score": 0.5823235303886362
+              }
+            ],
+            "gold": [
+              "correction"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S04",
+            "selected": [
+              {
+                "id": "leave",
+                "score": 0.7112563923370546
+              },
+              {
+                "id": "absence",
+                "score": 0.5893263493474287
+              }
+            ],
+            "gold": [
+              "leave"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S05",
+            "selected": [
+              {
+                "id": "ability",
+                "score": 0.6094766714884627
+              },
+              {
+                "id": "arrival",
+                "score": 0.5354752034916384
+              }
+            ],
+            "gold": [
+              "ability"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S06",
+            "selected": [
+              {
+                "id": "secret",
+                "score": 0.6411696365232988
+              },
+              {
+                "id": "privacy",
+                "score": 0.5956108181856259
+              }
+            ],
+            "gold": [
+              "secret"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S07",
+            "selected": [
+              {
+                "id": "discussion",
+                "score": 0.6333519576331225
+              },
+              {
+                "id": "notice",
+                "score": 0.5354171253605967
+              }
+            ],
+            "gold": [
+              "discussion"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S08",
+            "selected": [
+              {
+                "id": "termination",
+                "score": 0.6626228898441812
+              },
+              {
+                "id": "notice",
+                "score": 0.5542165142239114
+              }
+            ],
+            "gold": [
+              "termination"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "C01",
+            "selected": [
+              {
+                "id": "field",
+                "score": 0.7110104103135814
+              },
+              {
+                "id": "arrival",
+                "score": 0.684005777237727
+              }
+            ],
+            "gold": [
+              "arrival",
+              "field"
+            ],
+            "hits": 2,
+            "missed": []
+          },
+          {
+            "id": "C02",
+            "selected": [
+              {
+                "id": "visitor",
+                "score": 0.7242389661626094
+              },
+              {
+                "id": "field",
+                "score": 0.598335519004075
+              }
+            ],
+            "gold": [
+              "visitor"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "C03",
+            "selected": [
+              {
+                "id": "bonus",
+                "score": 0.7287275105478674
+              },
+              {
+                "id": "pay",
+                "score": 0.7090652816060254
+              }
+            ],
+            "gold": [
+              "pay",
+              "bonus"
+            ],
+            "hits": 2,
+            "missed": []
+          },
+          {
+            "id": "C04",
+            "selected": [
+              {
+                "id": "ability",
+                "score": 0.6417987263454432
+              },
+              {
+                "id": "discipline",
+                "score": 0.6409361907248716
+              }
+            ],
+            "gold": [
+              "ability",
+              "discipline"
+            ],
+            "hits": 2,
+            "missed": []
+          },
+          {
+            "id": "C05",
+            "selected": [
+              {
+                "id": "weekend",
+                "score": 0.7122086870628542
+              },
+              {
+                "id": "weekday",
+                "score": 0.7034563843380593
+              }
+            ],
+            "gold": [
+              "weekend",
+              "weekday"
+            ],
+            "hits": 2,
+            "missed": []
+          },
+          {
+            "id": "C06",
+            "selected": [
+              {
+                "id": "secret",
+                "score": 0.6859473599016438
+              },
+              {
+                "id": "competition",
+                "score": 0.6032318335286027
+              }
+            ],
+            "gold": [
+              "secret",
+              "competition"
+            ],
+            "hits": 2,
+            "missed": []
+          },
+          {
+            "id": "N01",
+            "selected": [
+              {
+                "id": "pay",
+                "score": 0.4709939433811017
+              },
+              {
+                "id": "arrival",
+                "score": 0.437708497008505
+              }
+            ],
+            "gold": [],
+            "hits": 0,
+            "missed": []
+          },
+          {
+            "id": "N02",
+            "selected": [
+              {
+                "id": "visitor",
+                "score": 0.38504071035164095
+              },
+              {
+                "id": "leave",
+                "score": 0.382849249741886
+              }
+            ],
+            "gold": [],
+            "hits": 0,
+            "missed": []
+          },
+          {
+            "id": "N03",
+            "selected": [
+              {
+                "id": "visitor",
+                "score": 0.49336769405171277
+              },
+              {
+                "id": "holiday",
+                "score": 0.46117013390494216
+              }
+            ],
+            "gold": [],
+            "hits": 0,
+            "missed": []
+          },
+          {
+            "id": "N04",
+            "selected": [
+              {
+                "id": "arrival",
+                "score": 0.44444364226243416
+              },
+              {
+                "id": "asset",
+                "score": 0.39407124515189285
+              }
+            ],
+            "gold": [],
+            "hits": 0,
+            "missed": []
+          }
+        ]
+      },
+      "groups": {
+        "direct": {
+          "answerableCount": 6,
+          "noAnswerCount": 0,
+          "hits": 6,
+          "returned": 12,
+          "expected": 6,
+          "precisionAtK": 0.5,
+          "recallMicroAtK": 1,
+          "mrrAtK": 1,
+          "noAnswerReturnedCount": 0,
+          "cases": [
+            {
+              "id": "D01",
+              "selected": [
+                {
+                  "id": "arrival",
+                  "score": 0.7424208847849952
+                },
+                {
+                  "id": "field",
+                  "score": 0.6530202676431689
+                }
+              ],
+              "gold": [
+                "arrival"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "D02",
+              "selected": [
+                {
+                  "id": "pay",
+                  "score": 0.7138521312572703
+                },
+                {
+                  "id": "bonus",
+                  "score": 0.5912219679009647
+                }
+              ],
+              "gold": [
+                "pay"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "D03",
+              "selected": [
+                {
+                  "id": "correction",
+                  "score": 0.770071460860874
+                },
+                {
+                  "id": "leave",
+                  "score": 0.5979559560246197
+                }
+              ],
+              "gold": [
+                "correction"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "D04",
+              "selected": [
+                {
+                  "id": "leave",
+                  "score": 0.7059710734348618
+                },
+                {
+                  "id": "correction",
+                  "score": 0.5305495389932015
+                }
+              ],
+              "gold": [
+                "leave"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "D05",
+              "selected": [
+                {
+                  "id": "holiday",
+                  "score": 0.7939692479996288
+                },
+                {
+                  "id": "weekend",
+                  "score": 0.7221720621396929
+                }
+              ],
+              "gold": [
+                "holiday"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "D06",
+              "selected": [
+                {
+                  "id": "notice",
+                  "score": 0.7204694093553835
+                },
+                {
+                  "id": "discussion",
+                  "score": 0.4973335675359402
+                }
+              ],
+              "gold": [
+                "notice"
+              ],
+              "hits": 1,
+              "missed": []
+            }
+          ]
+        },
+        "semantic": {
+          "answerableCount": 8,
+          "noAnswerCount": 0,
+          "hits": 8,
+          "returned": 16,
+          "expected": 8,
+          "precisionAtK": 0.5,
+          "recallMicroAtK": 1,
+          "mrrAtK": 1,
+          "noAnswerReturnedCount": 0,
+          "cases": [
+            {
+              "id": "S01",
+              "selected": [
+                {
+                  "id": "arrival",
+                  "score": 0.7018056728418801
+                },
+                {
+                  "id": "field",
+                  "score": 0.6472621345330805
+                }
+              ],
+              "gold": [
+                "arrival"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S02",
+              "selected": [
+                {
+                  "id": "pay",
+                  "score": 0.697826746495689
+                },
+                {
+                  "id": "bonus",
+                  "score": 0.621262811527571
+                }
+              ],
+              "gold": [
+                "pay"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S03",
+              "selected": [
+                {
+                  "id": "correction",
+                  "score": 0.6068068028580786
+                },
+                {
+                  "id": "visitor",
+                  "score": 0.5823235303886362
+                }
+              ],
+              "gold": [
+                "correction"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S04",
+              "selected": [
+                {
+                  "id": "leave",
+                  "score": 0.7112563923370546
+                },
+                {
+                  "id": "absence",
+                  "score": 0.5893263493474287
+                }
+              ],
+              "gold": [
+                "leave"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S05",
+              "selected": [
+                {
+                  "id": "ability",
+                  "score": 0.6094766714884627
+                },
+                {
+                  "id": "arrival",
+                  "score": 0.5354752034916384
+                }
+              ],
+              "gold": [
+                "ability"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S06",
+              "selected": [
+                {
+                  "id": "secret",
+                  "score": 0.6411696365232988
+                },
+                {
+                  "id": "privacy",
+                  "score": 0.5956108181856259
+                }
+              ],
+              "gold": [
+                "secret"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S07",
+              "selected": [
+                {
+                  "id": "discussion",
+                  "score": 0.6333519576331225
+                },
+                {
+                  "id": "notice",
+                  "score": 0.5354171253605967
+                }
+              ],
+              "gold": [
+                "discussion"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S08",
+              "selected": [
+                {
+                  "id": "termination",
+                  "score": 0.6626228898441812
+                },
+                {
+                  "id": "notice",
+                  "score": 0.5542165142239114
+                }
+              ],
+              "gold": [
+                "termination"
+              ],
+              "hits": 1,
+              "missed": []
+            }
+          ]
+        },
+        "conditions": {
+          "answerableCount": 6,
+          "noAnswerCount": 0,
+          "hits": 11,
+          "returned": 12,
+          "expected": 11,
+          "precisionAtK": 0.9166666666666666,
+          "recallMicroAtK": 1,
+          "mrrAtK": 1,
+          "noAnswerReturnedCount": 0,
+          "cases": [
+            {
+              "id": "C01",
+              "selected": [
+                {
+                  "id": "field",
+                  "score": 0.7110104103135814
+                },
+                {
+                  "id": "arrival",
+                  "score": 0.684005777237727
+                }
+              ],
+              "gold": [
+                "arrival",
+                "field"
+              ],
+              "hits": 2,
+              "missed": []
+            },
+            {
+              "id": "C02",
+              "selected": [
+                {
+                  "id": "visitor",
+                  "score": 0.7242389661626094
+                },
+                {
+                  "id": "field",
+                  "score": 0.598335519004075
+                }
+              ],
+              "gold": [
+                "visitor"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "C03",
+              "selected": [
+                {
+                  "id": "bonus",
+                  "score": 0.7287275105478674
+                },
+                {
+                  "id": "pay",
+                  "score": 0.7090652816060254
+                }
+              ],
+              "gold": [
+                "pay",
+                "bonus"
+              ],
+              "hits": 2,
+              "missed": []
+            },
+            {
+              "id": "C04",
+              "selected": [
+                {
+                  "id": "ability",
+                  "score": 0.6417987263454432
+                },
+                {
+                  "id": "discipline",
+                  "score": 0.6409361907248716
+                }
+              ],
+              "gold": [
+                "ability",
+                "discipline"
+              ],
+              "hits": 2,
+              "missed": []
+            },
+            {
+              "id": "C05",
+              "selected": [
+                {
+                  "id": "weekend",
+                  "score": 0.7122086870628542
+                },
+                {
+                  "id": "weekday",
+                  "score": 0.7034563843380593
+                }
+              ],
+              "gold": [
+                "weekend",
+                "weekday"
+              ],
+              "hits": 2,
+              "missed": []
+            },
+            {
+              "id": "C06",
+              "selected": [
+                {
+                  "id": "secret",
+                  "score": 0.6859473599016438
+                },
+                {
+                  "id": "competition",
+                  "score": 0.6032318335286027
+                }
+              ],
+              "gold": [
+                "secret",
+                "competition"
+              ],
+              "hits": 2,
+              "missed": []
+            }
+          ]
+        },
+        "no-answer": {
+          "answerableCount": 0,
+          "noAnswerCount": 4,
+          "hits": 0,
+          "returned": 0,
+          "expected": 0,
+          "precisionAtK": null,
+          "recallMicroAtK": null,
+          "mrrAtK": null,
+          "noAnswerReturnedCount": 4,
+          "cases": [
+            {
+              "id": "N01",
+              "selected": [
+                {
+                  "id": "pay",
+                  "score": 0.4709939433811017
+                },
+                {
+                  "id": "arrival",
+                  "score": 0.437708497008505
+                }
+              ],
+              "gold": [],
+              "hits": 0,
+              "missed": []
+            },
+            {
+              "id": "N02",
+              "selected": [
+                {
+                  "id": "visitor",
+                  "score": 0.38504071035164095
+                },
+                {
+                  "id": "leave",
+                  "score": 0.382849249741886
+                }
+              ],
+              "gold": [],
+              "hits": 0,
+              "missed": []
+            },
+            {
+              "id": "N03",
+              "selected": [
+                {
+                  "id": "visitor",
+                  "score": 0.49336769405171277
+                },
+                {
+                  "id": "holiday",
+                  "score": 0.46117013390494216
+                }
+              ],
+              "gold": [],
+              "hits": 0,
+              "missed": []
+            },
+            {
+              "id": "N04",
+              "selected": [
+                {
+                  "id": "arrival",
+                  "score": 0.44444364226243416
+                },
+                {
+                  "id": "asset",
+                  "score": 0.39407124515189285
+                }
+              ],
+              "gold": [],
+              "hits": 0,
+              "missed": []
+            }
+          ]
+        }
+      }
+    },
+    "hybrid": {
+      "all": {
+        "answerableCount": 20,
+        "noAnswerCount": 4,
+        "hits": 24,
+        "returned": 40,
+        "expected": 25,
+        "precisionAtK": 0.6,
+        "recallMicroAtK": 0.96,
+        "mrrAtK": 0.95,
+        "noAnswerReturnedCount": 4,
+        "cases": [
+          {
+            "id": "D01",
+            "selected": [
+              {
+                "id": "arrival",
+                "score": 0.03278688524590164
+              },
+              {
+                "id": "field",
+                "score": 0.03225806451612903
+              }
+            ],
+            "gold": [
+              "arrival"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "D02",
+            "selected": [
+              {
+                "id": "pay",
+                "score": 0.03278688524590164
+              },
+              {
+                "id": "bonus",
+                "score": 0.03225806451612903
+              }
+            ],
+            "gold": [
+              "pay"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "D03",
+            "selected": [
+              {
+                "id": "correction",
+                "score": 0.03278688524590164
+              },
+              {
+                "id": "leave",
+                "score": 0.03225806451612903
+              }
+            ],
+            "gold": [
+              "correction"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "D04",
+            "selected": [
+              {
+                "id": "leave",
+                "score": 0.03278688524590164
+              },
+              {
+                "id": "correction",
+                "score": 0.016129032258064516
+              }
+            ],
+            "gold": [
+              "leave"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "D05",
+            "selected": [
+              {
+                "id": "holiday",
+                "score": 0.03278688524590164
+              },
+              {
+                "id": "weekend",
+                "score": 0.03225806451612903
+              }
+            ],
+            "gold": [
+              "holiday"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "D06",
+            "selected": [
+              {
+                "id": "notice",
+                "score": 0.03278688524590164
+              },
+              {
+                "id": "discussion",
+                "score": 0.03225806451612903
+              }
+            ],
+            "gold": [
+              "notice"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S01",
+            "selected": [
+              {
+                "id": "arrival",
+                "score": 0.03278688524590164
+              },
+              {
+                "id": "field",
+                "score": 0.016129032258064516
+              }
+            ],
+            "gold": [
+              "arrival"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S02",
+            "selected": [
+              {
+                "id": "pay",
+                "score": 0.03278688524590164
+              },
+              {
+                "id": "bonus",
+                "score": 0.03225806451612903
+              }
+            ],
+            "gold": [
+              "pay"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S03",
+            "selected": [
+              {
+                "id": "correction",
+                "score": 0.03252247488101534
+              },
+              {
+                "id": "absence",
+                "score": 0.032266458495966696
+              }
+            ],
+            "gold": [
+              "correction"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S04",
+            "selected": [
+              {
+                "id": "leave",
+                "score": 0.01639344262295082
+              },
+              {
+                "id": "absence",
+                "score": 0.016129032258064516
+              }
+            ],
+            "gold": [
+              "leave"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S05",
+            "selected": [
+              {
+                "id": "ability",
+                "score": 0.03278688524590164
+              },
+              {
+                "id": "arrival",
+                "score": 0.0315136476426799
+              }
+            ],
+            "gold": [
+              "ability"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S06",
+            "selected": [
+              {
+                "id": "secret",
+                "score": 0.03278688524590164
+              },
+              {
+                "id": "privacy",
+                "score": 0.016129032258064516
+              }
+            ],
+            "gold": [
+              "secret"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "S07",
+            "selected": [
+              {
+                "id": "weekend",
+                "score": 0.03200204813108039
+              },
+              {
+                "id": "holiday",
+                "score": 0.03131881575727918
+              }
+            ],
+            "gold": [
+              "discussion"
+            ],
+            "hits": 0,
+            "missed": [
+              "discussion"
+            ]
+          },
+          {
+            "id": "S08",
+            "selected": [
+              {
+                "id": "termination",
+                "score": 0.03278688524590164
+              },
+              {
+                "id": "holiday",
+                "score": 0.0304147465437788
+              }
+            ],
+            "gold": [
+              "termination"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "C01",
+            "selected": [
+              {
+                "id": "arrival",
+                "score": 0.03252247488101534
+              },
+              {
+                "id": "field",
+                "score": 0.03252247488101534
+              }
+            ],
+            "gold": [
+              "arrival",
+              "field"
+            ],
+            "hits": 2,
+            "missed": []
+          },
+          {
+            "id": "C02",
+            "selected": [
+              {
+                "id": "visitor",
+                "score": 0.03278688524590164
+              },
+              {
+                "id": "correction",
+                "score": 0.03200204813108039
+              }
+            ],
+            "gold": [
+              "visitor"
+            ],
+            "hits": 1,
+            "missed": []
+          },
+          {
+            "id": "C03",
+            "selected": [
+              {
+                "id": "bonus",
+                "score": 0.03278688524590164
+              },
+              {
+                "id": "pay",
+                "score": 0.03225806451612903
+              }
+            ],
+            "gold": [
+              "pay",
+              "bonus"
+            ],
+            "hits": 2,
+            "missed": []
+          },
+          {
+            "id": "C04",
+            "selected": [
+              {
+                "id": "discipline",
+                "score": 0.03252247488101534
+              },
+              {
+                "id": "ability",
+                "score": 0.03131881575727918
+              }
+            ],
+            "gold": [
+              "ability",
+              "discipline"
+            ],
+            "hits": 2,
+            "missed": []
+          },
+          {
+            "id": "C05",
+            "selected": [
+              {
+                "id": "weekday",
+                "score": 0.03252247488101534
+              },
+              {
+                "id": "weekend",
+                "score": 0.03252247488101534
+              }
+            ],
+            "gold": [
+              "weekend",
+              "weekday"
+            ],
+            "hits": 2,
+            "missed": []
+          },
+          {
+            "id": "C06",
+            "selected": [
+              {
+                "id": "secret",
+                "score": 0.03278688524590164
+              },
+              {
+                "id": "competition",
+                "score": 0.03225806451612903
+              }
+            ],
+            "gold": [
+              "secret",
+              "competition"
+            ],
+            "hits": 2,
+            "missed": []
+          },
+          {
+            "id": "N01",
+            "selected": [
+              {
+                "id": "pay",
+                "score": 0.01639344262295082
+              },
+              {
+                "id": "arrival",
+                "score": 0.016129032258064516
+              }
+            ],
+            "gold": [],
+            "hits": 0,
+            "missed": []
+          },
+          {
+            "id": "N02",
+            "selected": [
+              {
+                "id": "visitor",
+                "score": 0.01639344262295082
+              },
+              {
+                "id": "leave",
+                "score": 0.016129032258064516
+              }
+            ],
+            "gold": [],
+            "hits": 0,
+            "missed": []
+          },
+          {
+            "id": "N03",
+            "selected": [
+              {
+                "id": "visitor",
+                "score": 0.01639344262295082
+              },
+              {
+                "id": "holiday",
+                "score": 0.016129032258064516
+              }
+            ],
+            "gold": [],
+            "hits": 0,
+            "missed": []
+          },
+          {
+            "id": "N04",
+            "selected": [
+              {
+                "id": "arrival",
+                "score": 0.03278688524590164
+              },
+              {
+                "id": "asset",
+                "score": 0.03200204813108039
+              }
+            ],
+            "gold": [],
+            "hits": 0,
+            "missed": []
+          }
+        ]
+      },
+      "groups": {
+        "direct": {
+          "answerableCount": 6,
+          "noAnswerCount": 0,
+          "hits": 6,
+          "returned": 12,
+          "expected": 6,
+          "precisionAtK": 0.5,
+          "recallMicroAtK": 1,
+          "mrrAtK": 1,
+          "noAnswerReturnedCount": 0,
+          "cases": [
+            {
+              "id": "D01",
+              "selected": [
+                {
+                  "id": "arrival",
+                  "score": 0.03278688524590164
+                },
+                {
+                  "id": "field",
+                  "score": 0.03225806451612903
+                }
+              ],
+              "gold": [
+                "arrival"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "D02",
+              "selected": [
+                {
+                  "id": "pay",
+                  "score": 0.03278688524590164
+                },
+                {
+                  "id": "bonus",
+                  "score": 0.03225806451612903
+                }
+              ],
+              "gold": [
+                "pay"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "D03",
+              "selected": [
+                {
+                  "id": "correction",
+                  "score": 0.03278688524590164
+                },
+                {
+                  "id": "leave",
+                  "score": 0.03225806451612903
+                }
+              ],
+              "gold": [
+                "correction"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "D04",
+              "selected": [
+                {
+                  "id": "leave",
+                  "score": 0.03278688524590164
+                },
+                {
+                  "id": "correction",
+                  "score": 0.016129032258064516
+                }
+              ],
+              "gold": [
+                "leave"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "D05",
+              "selected": [
+                {
+                  "id": "holiday",
+                  "score": 0.03278688524590164
+                },
+                {
+                  "id": "weekend",
+                  "score": 0.03225806451612903
+                }
+              ],
+              "gold": [
+                "holiday"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "D06",
+              "selected": [
+                {
+                  "id": "notice",
+                  "score": 0.03278688524590164
+                },
+                {
+                  "id": "discussion",
+                  "score": 0.03225806451612903
+                }
+              ],
+              "gold": [
+                "notice"
+              ],
+              "hits": 1,
+              "missed": []
+            }
+          ]
+        },
+        "semantic": {
+          "answerableCount": 8,
+          "noAnswerCount": 0,
+          "hits": 7,
+          "returned": 16,
+          "expected": 8,
+          "precisionAtK": 0.4375,
+          "recallMicroAtK": 0.875,
+          "mrrAtK": 0.875,
+          "noAnswerReturnedCount": 0,
+          "cases": [
+            {
+              "id": "S01",
+              "selected": [
+                {
+                  "id": "arrival",
+                  "score": 0.03278688524590164
+                },
+                {
+                  "id": "field",
+                  "score": 0.016129032258064516
+                }
+              ],
+              "gold": [
+                "arrival"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S02",
+              "selected": [
+                {
+                  "id": "pay",
+                  "score": 0.03278688524590164
+                },
+                {
+                  "id": "bonus",
+                  "score": 0.03225806451612903
+                }
+              ],
+              "gold": [
+                "pay"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S03",
+              "selected": [
+                {
+                  "id": "correction",
+                  "score": 0.03252247488101534
+                },
+                {
+                  "id": "absence",
+                  "score": 0.032266458495966696
+                }
+              ],
+              "gold": [
+                "correction"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S04",
+              "selected": [
+                {
+                  "id": "leave",
+                  "score": 0.01639344262295082
+                },
+                {
+                  "id": "absence",
+                  "score": 0.016129032258064516
+                }
+              ],
+              "gold": [
+                "leave"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S05",
+              "selected": [
+                {
+                  "id": "ability",
+                  "score": 0.03278688524590164
+                },
+                {
+                  "id": "arrival",
+                  "score": 0.0315136476426799
+                }
+              ],
+              "gold": [
+                "ability"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S06",
+              "selected": [
+                {
+                  "id": "secret",
+                  "score": 0.03278688524590164
+                },
+                {
+                  "id": "privacy",
+                  "score": 0.016129032258064516
+                }
+              ],
+              "gold": [
+                "secret"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "S07",
+              "selected": [
+                {
+                  "id": "weekend",
+                  "score": 0.03200204813108039
+                },
+                {
+                  "id": "holiday",
+                  "score": 0.03131881575727918
+                }
+              ],
+              "gold": [
+                "discussion"
+              ],
+              "hits": 0,
+              "missed": [
+                "discussion"
+              ]
+            },
+            {
+              "id": "S08",
+              "selected": [
+                {
+                  "id": "termination",
+                  "score": 0.03278688524590164
+                },
+                {
+                  "id": "holiday",
+                  "score": 0.0304147465437788
+                }
+              ],
+              "gold": [
+                "termination"
+              ],
+              "hits": 1,
+              "missed": []
+            }
+          ]
+        },
+        "conditions": {
+          "answerableCount": 6,
+          "noAnswerCount": 0,
+          "hits": 11,
+          "returned": 12,
+          "expected": 11,
+          "precisionAtK": 0.9166666666666666,
+          "recallMicroAtK": 1,
+          "mrrAtK": 1,
+          "noAnswerReturnedCount": 0,
+          "cases": [
+            {
+              "id": "C01",
+              "selected": [
+                {
+                  "id": "arrival",
+                  "score": 0.03252247488101534
+                },
+                {
+                  "id": "field",
+                  "score": 0.03252247488101534
+                }
+              ],
+              "gold": [
+                "arrival",
+                "field"
+              ],
+              "hits": 2,
+              "missed": []
+            },
+            {
+              "id": "C02",
+              "selected": [
+                {
+                  "id": "visitor",
+                  "score": 0.03278688524590164
+                },
+                {
+                  "id": "correction",
+                  "score": 0.03200204813108039
+                }
+              ],
+              "gold": [
+                "visitor"
+              ],
+              "hits": 1,
+              "missed": []
+            },
+            {
+              "id": "C03",
+              "selected": [
+                {
+                  "id": "bonus",
+                  "score": 0.03278688524590164
+                },
+                {
+                  "id": "pay",
+                  "score": 0.03225806451612903
+                }
+              ],
+              "gold": [
+                "pay",
+                "bonus"
+              ],
+              "hits": 2,
+              "missed": []
+            },
+            {
+              "id": "C04",
+              "selected": [
+                {
+                  "id": "discipline",
+                  "score": 0.03252247488101534
+                },
+                {
+                  "id": "ability",
+                  "score": 0.03131881575727918
+                }
+              ],
+              "gold": [
+                "ability",
+                "discipline"
+              ],
+              "hits": 2,
+              "missed": []
+            },
+            {
+              "id": "C05",
+              "selected": [
+                {
+                  "id": "weekday",
+                  "score": 0.03252247488101534
+                },
+                {
+                  "id": "weekend",
+                  "score": 0.03252247488101534
+                }
+              ],
+              "gold": [
+                "weekend",
+                "weekday"
+              ],
+              "hits": 2,
+              "missed": []
+            },
+            {
+              "id": "C06",
+              "selected": [
+                {
+                  "id": "secret",
+                  "score": 0.03278688524590164
+                },
+                {
+                  "id": "competition",
+                  "score": 0.03225806451612903
+                }
+              ],
+              "gold": [
+                "secret",
+                "competition"
+              ],
+              "hits": 2,
+              "missed": []
+            }
+          ]
+        },
+        "no-answer": {
+          "answerableCount": 0,
+          "noAnswerCount": 4,
+          "hits": 0,
+          "returned": 0,
+          "expected": 0,
+          "precisionAtK": null,
+          "recallMicroAtK": null,
+          "mrrAtK": null,
+          "noAnswerReturnedCount": 4,
+          "cases": [
+            {
+              "id": "N01",
+              "selected": [
+                {
+                  "id": "pay",
+                  "score": 0.01639344262295082
+                },
+                {
+                  "id": "arrival",
+                  "score": 0.016129032258064516
+                }
+              ],
+              "gold": [],
+              "hits": 0,
+              "missed": []
+            },
+            {
+              "id": "N02",
+              "selected": [
+                {
+                  "id": "visitor",
+                  "score": 0.01639344262295082
+                },
+                {
+                  "id": "leave",
+                  "score": 0.016129032258064516
+                }
+              ],
+              "gold": [],
+              "hits": 0,
+              "missed": []
+            },
+            {
+              "id": "N03",
+              "selected": [
+                {
+                  "id": "visitor",
+                  "score": 0.01639344262295082
+                },
+                {
+                  "id": "holiday",
+                  "score": 0.016129032258064516
+                }
+              ],
+              "gold": [],
+              "hits": 0,
+              "missed": []
+            },
+            {
+              "id": "N04",
+              "selected": [
+                {
+                  "id": "arrival",
+                  "score": 0.03278688524590164
+                },
+                {
+                  "id": "asset",
+                  "score": 0.03200204813108039
+                }
+              ],
+              "gold": [],
+              "hits": 0,
+              "missed": []
+            }
+          ]
+        }
+      }
+    }
+  },
+  "limitations": [
+    "Same-author small synthetic set; not legal gold or production distribution.",
+    "No similarity abstention threshold was fitted; no-answer returns are explicitly reported.",
+    "Reference ranking comparison does not measure body-conflict candidate recall.",
+    "No production retrieval changes, no DB writes, no silent vector fallback."
+  ]
+}

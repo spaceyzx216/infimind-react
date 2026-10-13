@@ -1,3 +1,4 @@
+import { MAX_MODEL_OUTPUT_TOKENS } from '../../src/utils/context-budget.js'
 import { chatDetailed, getFlashModel } from '../services/llm-client.js'
 import { createLaborContractRedactor } from '../services/labor-contract-redaction.js'
 
@@ -95,7 +96,7 @@ export async function classifyLaborContractDocumentsWithLlm({ documents = [], cl
 
   try {
     const response = await generate(systemPrompt, userMessage, {
-      model: getFlashModel(), temperature: 0, maxTokens: 900,
+      model: getFlashModel(), temperature: 0, maxTokens: MAX_MODEL_OUTPUT_TOKENS,
       thinking: { type: 'disabled' }, responseFormat: { type: 'json_object' }, signal
     })
     const content = typeof response === 'string' ? response : response?.content

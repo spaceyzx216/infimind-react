@@ -28,6 +28,7 @@
 .pension-field-help { margin-top: 6px; color: var(--fafee-ink-muted, #68686d); font-size: 12px; line-height: 1.7; }
 .pension-field-help summary { width: fit-content; cursor: pointer; }
 .pension-field-help p { margin: 6px 0 0; }
+.pension-field-inline-hint, .pension-result-part-note { margin: 6px 0 0; color: var(--fafee-ink-muted, #68686d); font-size: 12px; line-height: 1.7; }
 .pension-field-error { display: block; margin-top: 6px; color: #b42318; font-size: 12px; line-height: 1.65; }
 .pension-inline-help { grid-column: 1 / -1; }
 .pension-inline-help p { margin: 4px 0 0; }
@@ -57,6 +58,7 @@
 .pension-total strong { font-size: 30px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .pension-total > small { color: var(--fafee-ink-muted, #80512d); font-size: 12px; line-height: 1.7; }
 .pension-result-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.pension-result-grid-with-transition { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .pension-result-grid span { display: block; color: var(--fafee-ink-muted, #68686d); font-size: 13px; }
 .pension-result-grid strong { display: block; margin-top: 6px; color: var(--fafee-ink, #202024); font-size: 23px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .pension-result-grid strong small, .pension-total strong small { margin-left: 6px; color: var(--fafee-ink-muted, #68686d); font-size: 12px; font-weight: 400; }
@@ -92,4 +94,5 @@
 
 .app-workspace[data-theme="dark"] .pension-notice { color: #f2c28c; background: #352b23; border-color: #725235; }
 .app-workspace[data-theme="dark"] .pension-error { color: #ffa99b; background: #3b2526; border-color: #74413d; }
-.app-workspace[data-theme="dark"] .pension-field-error { color: #ffa99b; }
+.app-workspace[data-theme="dark"] .pension-field-inline-hint, .pension-result-part-note { margin: 6px 0 0; color: var(--fafee-ink-muted, #68686d); font-size: 12px; line-height: 1.7; }
+.pension-field-error { color: #ffa99b; }

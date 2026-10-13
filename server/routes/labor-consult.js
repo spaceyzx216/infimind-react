@@ -1,3 +1,6 @@
+import { MAX_MODEL_OUTPUT_TOKENS } from '../../src/utils/context-budget.js'
+import { selectMaterialBlocks, formatMaterialBlocks, materialNotice, isWholeDocumentQuestion } from '../services/document-materials.js'
+import { indexedMaterialText } from '../services/material-processing.js'
 /**
  * 用工咨询接口。
  *
@@ -26,7 +29,7 @@ import {
   seedLawWhitelist
 } from '../services/law-whitelist.js'
 import { verifyOutput, renderCitationNotice } from '../services/citation-verifier.js'
-import { mergeMaterials, getMaterials, clearMaterials, MAX_TOTAL_TEXT } from '../services/consult-material-store.js'
+import { mergeMaterials, getMaterials, clearMaterials, materialStoreKey, MAX_TOTAL_TEXT } from '../services/consult-material-store.js'
 import { rewriteFollowUpQuery } from '../services/query-rewriter.js'
 import { refineConversationTitle, isTitleRefineEnabled, toClientResult } from '../services/title-refiner.js'
 import { initializeLaborKb, searchLaborKb, getLaborKbStatus, getLaborSearchHealth } from '../services/labor-kb.js'
@@ -42,11 +45,10 @@ const upload = multer({
   storage: multer.memoryStorage(),
   // 浏览器 FormData 以 UTF-8 写入中文 filename；Busboy 默认 Latin-1 会造成文件名乱码。
   defParamCharset: 'utf8',
-  limits: { fileSize: MAX_FILE_SIZE }
+  limits: { fileSize: MAX_FILE_SIZE, fieldSize: 12 * 1024 * 1024 }
 })
 
 const MAX_MESSAGE_LENGTH = 8000
-const MAX_HISTORY = 12
 const EVIDENCE_LIMIT = 10
 const CASE_LIMIT = 5
 /** 实务问答条目数：这是答复质量的主要来源，配额给得比其它两路高 */
@@ -60,10 +62,11 @@ const KB_LIMIT = 7
  * 就被 `finish=length` 截断、正文 0 字（连续三次全失败）。`high` 档同样存在该风险，只是概率低。
  *
  * 为什么直接给最大值是安全的：max_tokens 是**上限而非目标**，只按实际生成量计费。
- * 给足不增加成本，却彻底消除"思考挤掉正文"这一类失败。
+ * 不按预留上限计费；实际生成变长仍会增加用量。提高上限能降低长度截断，
+ * 但不能排除上下文超限、网络中断或请求超时。
  * API 明确回包：valid range of max_tokens is [1, 393216]。
  */
-const MAX_OUTPUT_TOKENS = Number(process.env.LABOR_MAX_TOKENS || 393216)
+const MAX_OUTPUT_TOKENS = MAX_MODEL_OUTPUT_TOKENS
 
 const LABOR_TOPICS = [
   ['劳动关系认定与主体', ['劳动关系', '用人单位', '事实劳动关系', '劳务派遣', '外包', '主体资格']],
@@ -192,7 +195,6 @@ const parseHistory = (raw) => {
   if (!Array.isArray(history)) return []
   return history
     .filter((item) => item && ['user', 'assistant'].includes(item.role) && typeof item.content === 'string')
-    .slice(-MAX_HISTORY)
 }
 
 /**
@@ -272,7 +274,7 @@ async function buildRetrievalQuery({ message, materials = [], history = [] }) {
  * 单个文件解析失败不中断整轮咨询：记入 failures，继续用其余材料作答。
  * @returns {{ materials: Array<{name:string,text:string}>, failures: string[] }}
  */
-async function parseAttachments(files = [], onProgress, updateFileParseStatus = () => {}) {
+async function parseAttachments(files = [], onProgress, updateFileParseStatus = () => {}, sourceTaskId = '') {
   const materials = []
   const failures = []
   for (const file of files) {
@@ -285,7 +287,7 @@ async function parseAttachments(files = [], onProgress, updateFileParseStatus = 
         failures.push(`${file.originalname}：未提取到可用文字`)
         continue
       }
-      materials.push({ name: file.originalname, text })
+      materials.push({ name: file.originalname, text, fileId: file.id, sourceTaskId: file.sourceTaskId || sourceTaskId, parseMetadata: parsed.metadata })
       await updateFileParseStatus(file.id, 'succeeded')
     } catch (error) {
       await updateFileParseStatus(file.id, 'failed')
@@ -359,7 +361,8 @@ export async function runLaborConsult({
   const message = String(input.message ?? task.prompt ?? '').trim()
   const mode = input.mode === 'fast' || task.mode === 'fast' ? 'fast' : 'thinking'
   const region = String(input.region || '').trim()
-  const conversationId = String(input.conversationId || task.threadId || '').trim()
+  const rawConversationId = String(input.conversationId || task.threadId || '').trim()
+  const conversationId = materialStoreKey(task.userId, rawConversationId)
   const history = parseHistory(input.history)
   const attachments = Array.isArray(files) ? files : []
   const warnings = []
@@ -388,7 +391,7 @@ export async function runLaborConsult({
       const parsed = await parseAttachments(
         attachments,
         (label) => emit('consult.progress', { label }),
-        updateFileParseStatus
+        updateFileParseStatus, task.id
       )
       failures = parsed.failures
       const merged = mergeMaterials(conversationId, parsed.materials)
@@ -499,7 +502,14 @@ export async function runLaborConsult({
   }
 
   const systemPrompt = buildLaborConsultSystemPrompt({ now: new Date(), laws })
-  const userMessage = buildLaborConsultUserMessage({ message, evidence, cases, attachments: materials, kbEntries })
+  const selectedMaterials = selectMaterialBlocks(materials, message)
+  const indexText = indexedMaterialText(input.materialIndex)
+  const materialContext = materialNotice(materials, selectedMaterials.coverage) + '\n' + (input.materialNotice || '')
+  const modelMaterials = selectedMaterials.blocks.length ? [{ name: '本轮选取的原文及已遍历材料的逐字摘录',
+    text: `${formatMaterialBlocks(selectedMaterials.blocks)}\n${indexText}\n【读取限制】${materialContext}` }] : []
+  await checkpoint('material-coverage', { ...selectedMaterials.coverage,
+    indexed: (input.materialIndex || []).map((e) => e.blockId), mode: isWholeDocumentQuestion(message) ? 'whole-material-index' : 'question-selection' })
+  const userMessage = buildLaborConsultUserMessage({ message, evidence, cases, attachments: modelMaterials, kbEntries })
   let answer = ''
   let reasoning = ''
   if (fakeLlm) {
@@ -616,7 +626,7 @@ router.post('/labor-consult/verify', (req, res) => {
 router.post('/labor-consult/forget', (req, res) => {
   const conversationId = typeof req.body?.conversationId === 'string' ? req.body.conversationId.trim() : ''
   if (!conversationId) return res.status(400).json({ error: '缺少 conversationId' })
-  clearMaterials(conversationId)
+  clearMaterials(materialStoreKey(req.user?.id, conversationId))
   res.json({ ok: true })
 })
 
@@ -675,7 +685,7 @@ router.post('/labor-consult', upload.array('files', MAX_FILES), async (req, res)
   const writeSSE = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
   try {
     await runLaborConsult({
-      task: { mode, threadId: conversationId, prompt: message },
+      task: { userId: req.user?.id, mode, threadId: conversationId, prompt: message },
       input: { message, mode, region, conversationId, history },
       files: attachments,
       emit: writeSSE,

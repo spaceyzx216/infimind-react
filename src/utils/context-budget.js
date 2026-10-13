@@ -1,6 +1,7 @@
 // DeepSeek Flash 当前上下文容量；发送前只能估算，响应后使用 API usage 校正。
-export const CONTEXT_WINDOW_TOKENS = 1_000_000
-export const OUTPUT_RESERVE_TOKENS = 16_384
+export const CONTEXT_WINDOW_TOKENS = 1_048_576
+export const MAX_MODEL_OUTPUT_TOKENS = 393_216
+export const OUTPUT_RESERVE_TOKENS = MAX_MODEL_OUTPUT_TOKENS
 export const CONTEXT_SAFETY_TOKENS = 8_192
 
 export function estimateTokens(value) {
@@ -30,4 +31,11 @@ export function selectHistoryByTokens(value, budget) {
   }
   const history = turns.slice(first).flat()
   return { history, tokens, droppedMessages: messages.length - history.length }
+}
+
+export function selectConversationHistory(value, { question = '', mandatoryText = '' } = {}) {
+  // Leave room for the tool's system prompt, evidence and pending materials;
+  // the server repeats the check with the actual assembled input.
+  return selectHistoryByTokens(value, CONTEXT_WINDOW_TOKENS - OUTPUT_RESERVE_TOKENS - CONTEXT_SAFETY_TOKENS
+    - 100000 - estimateTokens(question) - estimateTokens(mandatoryText))
 }

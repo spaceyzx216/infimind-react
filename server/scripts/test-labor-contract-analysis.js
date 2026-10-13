@@ -282,6 +282,21 @@ async function testDetailedLlmResponse() {
   }
 }
 
+async function testLongDocumentTraversal() {
+  const checkpoints = new Map(), submitted = []
+  const tail = '末尾工资支付日为每月十五日。'
+  const documents = [{ fileId: 'long-source', fileName: '虚构长劳动合同.txt', text: '普通条款仅供模型桩验证。\n'.repeat(900) + tail }]
+  const workflow = createLaborContractAnalysisWorkflow({ retrieveEvidence: async () => [], getLawCatalog: async () => [],
+    generate: async ({ userMessage }) => { submitted.push(userMessage); return JSON.stringify({ ...sampleModelOutput, findings: [] }) } })
+  await workflow({ task: { id: 'long-traversal', mode: 'fast' }, input: { action: 'analyze' }, sourceDocuments: documents,
+    checkpoint: async (key, result) => checkpoints.set(key, { result }), getCheckpoint: (key) => checkpoints.get(key) })
+  assert.ok(submitted.length > 1, '长合同分块进入实际模型调用入口')
+  assert.ok(submitted.some((body) => body.includes(tail)), '后半部分条款必须进入模型')
+  const coverage = checkpoints.get('material-coverage').result
+  assert.equal(coverage.checked.length, coverage.parsed)
+  assert.ok(coverage.checked.length > 1)
+}
+
 async function testReviewResumeAndMode() {
   const saved = new Map()
   const rounds = []
@@ -527,6 +542,7 @@ async function testClassificationClarification() {
 
 try {
   await testClassificationClarification()
+  await testLongDocumentTraversal()
   await testReviewResumeAndMode()
   await testDetailedLlmResponse()
   await testStreamedAnalysisEvents()

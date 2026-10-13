@@ -1,0 +1,83 @@
+{
+  "date": "2026-10-13",
+  "syntheticOnly": true,
+  "publicProvisionCount": 17,
+  "independentLegalGold": false,
+  "live": [
+    {
+      "case": "T03",
+      "status": "succeeded",
+      "milliseconds": 70872,
+      "firstFindingMs": 26359,
+      "modelCalls": 8,
+      "bodyCompleted": 4,
+      "bodyTotal": 4,
+      "relations": {
+        "total": 5,
+        "completed": 5
+      },
+      "findings": 1,
+      "observationHits": 1,
+      "observationTotal": 1,
+      "badLocations": 0,
+      "tokensIncludingFollowup": 39068
+    },
+    {
+      "case": "T08",
+      "status": "succeeded",
+      "milliseconds": 164075,
+      "firstFindingMs": 33860,
+      "modelCalls": 16,
+      "bodyCompleted": 7,
+      "bodyTotal": 7,
+      "relations": {
+        "total": 6,
+        "completed": 6
+      },
+      "findings": 2,
+      "observationHits": 2,
+      "observationTotal": 2,
+      "badLocations": 0,
+      "tokensIncludingFollowup": 82662
+    },
+    {
+      "case": "T12",
+      "status": "succeeded",
+      "milliseconds": 293417,
+      "firstFindingMs": 39989,
+      "modelCalls": 36,
+      "bodyCompleted": 13,
+      "bodyTotal": 13,
+      "relations": {
+        "total": 42,
+        "completed": 42
+      },
+      "findings": 3,
+      "observationHits": 2,
+      "observationTotal": 2,
+      "badLocations": 0,
+      "tokensIncludingFollowup": 373316
+    }
+  ],
+  "engineering": {
+    "handbook": 38,
+    "legalManifest": 10,
+    "annotations": 7,
+    "parserScenarios": 13,
+    "lintErrors": 0,
+    "lintWarnings": 105
+  },
+  "browser": {
+    "widths": [
+      1440,
+      390
+    ],
+    "fullWorkflowCases": 9,
+    "actualResultFilesChecked": 5,
+    "actualLongSourceCharacters": 42679,
+    "pageErrors": 0
+  },
+  "productionVectorRetrieval": false,
+  "remotePrUpdated": false,
+  "publicationDeferred": "用户要求先完成本地"
+}

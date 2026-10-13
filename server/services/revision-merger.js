@@ -349,10 +349,13 @@ export function mergeRevisions(findings = [], agentOutput = '', contractText = '
   const matchedIds = []
 
   findings.forEach((finding, index) => {
+    const positional = rawRevisions[index]
     const matched =
       revisionById.get(finding.id) ||
       revisionById.get(`finding-${index + 1}`) ||
-      rawRevisions[index]
+      // Legacy outputs may omit the ID. An explicitly different ID is not
+      // evidence that this rewrite belongs to the finding at the same index.
+      (!asText(positional?.findingId) ? positional : null)
 
     const action = matched ? normalizeAction(matched.action) : 'modify'
     const agentRewrittenText = asText(matched?.rewrittenText)

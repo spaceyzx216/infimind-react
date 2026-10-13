@@ -1,3 +1,6 @@
+import { MAX_MODEL_OUTPUT_TOKENS, CONTEXT_WINDOW_TOKENS, CONTEXT_SAFETY_TOKENS, estimateTokens, selectHistoryByTokens } from '../../src/utils/context-budget.js'
+import { documentBlocks, formatMaterialBlocks, selectMaterialBlocks } from '../services/document-materials.js'
+import { indexedMaterialText } from '../services/material-processing.js'
 import { createHash } from 'node:crypto'
 import { extractText } from '../services/file-parser.js'
 import { searchEvidence, DEFAULT_EVIDENCE_LIMIT } from '../services/knowledge-base.js'
@@ -760,7 +763,13 @@ export async function executeLaborContractReview({
   rewriteSystemPrompt = LABOR_REWRITE_SYSTEM_PROMPT, readOnlyDocumentRoles = []
 }) {
   const safeDocuments = privacyRedactor.maskDocuments(documents).map(({ fileName, text, role }) => ({ fileName, text, role }))
-  const safeFocus = privacyRedactor.mask(focus)
+  const safeFocus = privacyRedactor.mask(focus + '\n' + (input.materialNotice || '') + '\n【已遍历材料的逐字摘录，须结合本块原文核对】\n' + indexedMaterialText(input.materialIndex))
+  const contentBlocks = documentBlocks(documents).map((b) => ({ ...b, fileName: privacyRedactor.mask(b.fileName), text: privacyRedactor.mask(b.text), context: privacyRedactor.mask(b.context) }))
+  const relatedDocuments = (query) => {
+    const selected = selectMaterialBlocks(safeDocuments, query)
+    return [{ fileName: '相关原文与逐字条件', text: formatMaterialBlocks(selected.blocks) + '\n' + privacyRedactor.mask(indexedMaterialText(input.materialIndex)) }]
+  }
+  const documentGroups = safeDocuments.reduce((sum, d) => sum + estimateTokens(d.text), 0) > 6000 ? contentBlocks.map((b) => [{ fileName: b.fileName, role: safeDocuments.find((d) => d.fileName === b.fileName)?.role, text: formatMaterialBlocks([b]) }]) : [safeDocuments]
   const safeEvidence = privacyRedactor.maskDeep(evidence)
   const safeLaws = lawPromptCatalog
   const termFacts = laborContractTermFacts(safeDocuments)
@@ -838,11 +847,12 @@ export async function executeLaborContractReview({
     const saved = checkpointValue(getCheckpoint, 'review-pages')
     let payload = saved?.version === 1 && saved.round === round ? saved.payload : {}
     let page = saved?.version === 1 && saved.round === round ? saved.page : 0
+    let materialGroup = saved?.version === 1 && saved.round === round ? saved.materialGroup || 0 : 0
     let noProgress = saved?.version === 1 && saved.round === round ? saved.noProgress || 0 : 0
     let audit = saved?.version === 1 && saved.round === round && saved.audit === true
     let dropped = 0
     const countedDuplicates = new Set()
-    const save = () => checkpoint('review-pages', { version: 1, round, page, payload, noProgress, audit })
+    const save = () => checkpoint('review-pages', { version: 1, round, page, payload, noProgress, audit, materialGroup })
     const publish = async (previewFields = {}) => {
       const preview = mergeLaborRoundPayload(mergeLaborRoundPayload(generated || {}, payload), previewFields)
       await emit('review.delta', { content: renderLaborContractProgressReport(normalize(privacyRedactor.restoreDeep(preview))), replace: true, streaming: true })
@@ -889,13 +899,18 @@ export async function executeLaborContractReview({
       const response = await unit('review', `round-${round}-page-${page}`, async (request) => {
         let lastPreviewAt = 0
         let lastPreview = ''
-        const userMessage = messageBuilder({ documents: safeDocuments, focus: safeFocus,
+        const userMessage = messageBuilder({ documents: documentGroups[materialGroup], focus: safeFocus + (documentGroups.length > 1 ? '\n当前只审查此内容块及提供的逐字关联摘录，不能因本块缺少某条款而断言全文缺失。' : ''),
           evidence: safeEvidence, lawCatalog: safeLaws, round, previousFindings: [...previousFindings, ...(payload.findings || []).map(findingSummary)],
           batchSize: request.attempt === 1 ? 6 : request.attempt === 2 ? 3 : 1,
           contractInfo: { ...(generated?.contractInfo || {}), ...(payload.contractInfo || {}) },
           agreementInfo: { ...(generated?.agreementInfo || {}), ...(payload.agreementInfo || {}) },
           topics: reviewTopics, ...extraContext,
           coverage: payload.coverage || payload.topicChecks || generated?.coverage || generated?.topicChecks || [], coverageAudit: audit })
+        const enteredBlocks = documentGroups.length > 1 ? contentBlocks.slice(0, materialGroup + 1) : contentBlocks
+        const checkedBlocks = documentGroups.length > 1 ? contentBlocks.slice(0, materialGroup) : []
+        await checkpoint('material-coverage', { parsed: contentBlocks.length, indexed: (input.materialIndex || []).map((e) => e.blockId),
+          selected: enteredBlocks.map((b) => b.id), entered: fakeLlm ? [] : enteredBlocks.map((b) => b.id), checked: checkedBlocks.map((b) => b.id),
+          simulated: Boolean(fakeLlm), round, partial: true })
         const onContent = async (raw) => {
           await accept(readStreamedAnalysisFields(raw, { preview: false }), request.signal)
           request.progress.completed = payload.findings?.length || 0
@@ -912,6 +927,16 @@ export async function executeLaborContractReview({
         return value
       })
       complete = response.roundComplete
+      if (complete) {
+        const completedBlocks = documentGroups.length > 1 ? contentBlocks.slice(0, materialGroup + 1) : contentBlocks
+        await checkpoint('material-coverage', { parsed: contentBlocks.length, indexed: (input.materialIndex || []).map((e) => e.blockId),
+          selected: completedBlocks.map((b) => b.id), entered: fakeLlm ? [] : completedBlocks.map((b) => b.id), checked: completedBlocks.map((b) => b.id),
+          simulated: Boolean(fakeLlm), round, partial: completedBlocks.length !== contentBlocks.length || Boolean(input.materialIncomplete) })
+      }
+      if (complete && materialGroup + 1 < documentGroups.length) {
+        materialGroup++; complete = false; noProgress = 0; audit = false
+        await emit('stage.progress', { stage: 'review', message: `继续审查内容块 ${materialGroup + 1}/${documentGroups.length}` })
+      }
       const after = progressSignature()
       noProgress = before === after ? noProgress + 1 : 0
       if (!complete && noProgress >= 2) {
@@ -921,6 +946,7 @@ export async function executeLaborContractReview({
       }
       await save()
     }
+    await checkpoint('material-coverage', { parsed: contentBlocks.length, selected: contentBlocks.map((b) => b.id), checked: contentBlocks.map((b) => b.id), round, partial: Boolean(input.materialIncomplete) })
     if (round === 1) assertAllTopicChecks(payload, reviewTopics)
     const newFindings = payload.findings || []
     combinedFindings.push(...newFindings)
@@ -974,7 +1000,7 @@ export async function executeLaborContractReview({
       const reviewed = await unit('quality', `findings-${offset + 1}`, async (request) => {
         const payload = await callModel({ ...request, phase: 'quality',
           systemPrompt: `你只整理已有审查草案，不能发现新风险、生成条款或推定未提供的事实。逐项对照完整原文和本项risk/advice，选择risk、reminder或duplicate。risk：原文中有明确不当约定、重要遗漏、具体矛盾或实际商业缺陷；重要事实不明而影响既有问题判断时保留risk并说明条件。reminder：条款已符合给定条件，理由仅为执行时核对地区规则、留存证据、确认岗位比例或可选流程；“材料未附”不等于“实际未履行”。如二年期限已合规却只需核对三性、病假较高标准已优先却还提醒查地区、社保已按实际工资却还提醒留凭证，应为reminder。duplicate：与此前保留或本批选择保留为risk的问题具有同一缺陷、同一法律原因和处理方向；换标题或重复风险后果不是独立问题。同条款法律原因不同必须保留risk。拿不准是否独立或是否为实质缺陷时保留risk，不能为减少数量而删除。只按输入数据判断，不作新的法律结论。每个输入candidateId必须恰好返回一次，reason说明原文与理由的具体关系；duplicateOf只能指向此前保留或本批明确标为risk的候选，不受本批输出顺序限制，不指向duplicate/reminder或未输入的ID。返回完整JSON {"decisions":[{"candidateId":"输入ID","kind":"risk|reminder|duplicate","reason":"具体说明","duplicateOf":"仅duplicate时的目标ID"}],"complete":true}。\n${LABOR_CONTENT_QUALITY_RULES}`,
-          userMessage: JSON.stringify(privacyRedactor.maskDeep({ ...extraContext, documents: safeDocuments, candidates: batch, kept,
+          userMessage: JSON.stringify(privacyRedactor.maskDeep({ ...extraContext, documents: relatedDocuments(JSON.stringify(batch)), candidates: batch, kept,
             outputRequirement: '返回的JSON顶层先写complete:true，再写decisions。所有候选必须逐项返回；完整闭合后才结束。',
             ...(request.attempt > 1 ? { retryRequirement: '上次标识或完成字段不完整；务必按当前批次ID逐项输出，包含complete:true，不重做其它批次。' } : {}) })) })
         if (payload.complete !== true || !Array.isArray(payload.decisions) || payload.decisions.length !== batch.length) throw unfinishedLaborOutput('问题核验未完整覆盖当前批次')
@@ -1016,7 +1042,7 @@ export async function executeLaborContractReview({
     if (!assessment || assessment.qualitySignature !== qualitySignature) {
       await emit('stage.start', { stage: 'assessment', label: '正在综合已确认问题判断整体分数' })
       assessment = await auxiliary('assessment', '你是企业合同审查助手。根据完整材料、已确认问题和用户关注点统一给出整体参考分数和简短结论，不新增问题、不改写条款。只返回 JSON {"score":0到100整数,"conclusion":"简短结论","complete":true}。',
-        { ...extraContext, documents: safeDocuments, focus: safeFocus, findings: combinedFindings.map(findingSummary), coverage: generated.coverage || generated.topicChecks })
+        { ...extraContext, documents: relatedDocuments(JSON.stringify(combinedFindings)), focus: safeFocus, findings: combinedFindings.map(findingSummary), coverage: generated.coverage || generated.topicChecks })
       if (!Number.isInteger(assessment.score) || assessment.score < 0 || assessment.score > 100 || !assessment.conclusion?.trim()) throw createAnalysisOutputError('整体评估字段不完整', 'labor_analysis_assessment_invalid')
       assessment.qualitySignature = qualitySignature
       await checkpoint('assessment', assessment)
@@ -1157,7 +1183,7 @@ export async function executeLaborContractReview({
     if (!dependencyPlan) {
       try {
         dependencyPlan = await auxiliary('dependencies', '核对企业合同修订组的条款依赖。只有明确互不依赖的组才能并行；原文范围重叠、相同插入位置、引用或前提相互依赖均串行，无法确定也串行。只返回 JSON {"independentIds":[组ID],"serialIds":[组ID],"dependencies":[[相关组ID,相关组ID]],"complete":true}，两个数组必须不重复且完整覆盖输入所有组。',
-          { ...extraContext, documents: safeDocuments, groups: revisionGroups.map(({ id, title, lineStart, lineEnd, originalText, risk, advice }) => ({ id, title, lineStart, lineEnd, originalText, risk, advice })) })
+          { ...extraContext, documents: relatedDocuments(JSON.stringify(revisionGroups)), groups: revisionGroups.map(({ id, title, lineStart, lineEnd, originalText, risk, advice }) => ({ id, title, lineStart, lineEnd, originalText, risk, advice })) })
         const ids = [...(dependencyPlan.independentIds || []), ...(dependencyPlan.serialIds || [])]
         if (dependencyPlan.dependencies?.some((edge) => !Array.isArray(edge) || edge.some((id) => !ids.includes(id)))) throw new Error('依赖标识无效')
         if (ids.length !== revisionGroups.length || new Set(ids).size !== ids.length || ids.some((id) => !revisionGroups.some((group) => group.id === id))) throw new Error('依赖判定未完整覆盖修订组')
@@ -1188,7 +1214,7 @@ export async function executeLaborContractReview({
       const maxRepairPasses = 2
       for (let pass = 0; pass <= maxRepairPasses; pass += 1) {
         finalCheck = await auxiliary('final-check', `核对已生成修订的可执行性、条款一致性和重复修改。原合同仅作溯源：被modify/delete替代的旧表述不再生效，不把旧文字与新文字不同当作冲突。同组rewrittenText是完整条款，localizedEdits是它的局部表示，属于同一份修改的两种展示，不是重复执行两次；不能因同一句在两种表示中都出现而判冲突。只指出有效修订互相矛盾、同一处重复修改、修订与未修改条款直接冲突，或修订本身违反已提供的明确规则/仍未解决本组风险（如漏掉劳动者同意、扩大试用期解除范围）。不得从头审查合同、发现新的原合同问题或仅优化措辞；不因事实占位未填而报冲突。程序日期核对只描述原合同；有效修订已经替换原期限时，不把原来的短期限当成仍然生效的冲突。不少于二年并明确具体终止日期由双方书面确认的待确认方案，不要求替企业选定新日期；未填具体日期属于待确认事实。已合法划分主体且未排除法定义务，不能因没有写出全部配合事项就重复修复。不得凭记忆提出未给出的法律限制；每条冲突必须点明实际有效文字如何与给出的明确规则矛盾，不能仅以可能被理解、边界不完整为由扩写。notice仅是保留原文待核对，不当成生效修改。依据不足时不推定违法。不得重新生成修订。readOnlyMaterials和readOnlyNotices是所选企业无权修改的配套材料，只作交叉核对；其中已指出的不足仍须签约方处理，不要求在本次修订中消除。主协议要求签约方依法纠正配套合同不足，是纠正义务，不是与旧配套文字相冲突；不得因此要求同步改配套合同。返回 JSON {"conflicts":[{"groupIds":[输入中真实存在的findingId],"target":"revision|read_only|source|optional","quote":"target为revision时逐字引用可修改修订中的错误文字；仅delete操作可引用本次被删除的原文，modify不得引用旧表述","reason":"具体条件及修复要求"}],"complete":true}。target=revision才是本次必须修复的错误；仅配套原件不合规、原合同新发现问题、可选措辞优化分别标read_only/source/optional，不得混入revision。conflicts仅放必须修复的问题，绝对不能放“无冲突”“符合规则”“核对通过”等通过记录；全部通过时必须返回{"conflicts":[],"complete":true}，不需要逐组解释。\n${LABOR_CONTENT_QUALITY_RULES}`,
-          { ...extraContext, documents: safeDocuments, laws: safeLaws,
+          { ...extraContext, documents: relatedDocuments(JSON.stringify(revisionGroups)), laws: safeLaws,
             readOnlyMaterials: safeDocuments.filter((document) => readOnlyDocumentRoles.includes(document.role)).map(({ fileName, role }) => ({ fileName, role })),
             readOnlyNotices: snapshot().filter((revision) => readOnlyIds.has(revision.findingId)).map(({ findingId, originalText, riskNote }) => ({ findingId, originalText, riskNote })),
             groups: revisionGroups.filter((group) => !readOnlyIds.has(group.id)).map(({ id, title, risk, advice }) => ({ id, title, risk, advice })),
@@ -1290,7 +1316,7 @@ export function createLaborContractAnalysisWorkflow({
 } = {}) {
   const optionsFor = ({ mode, signal, requestTimeoutMs, maxTokens }) => ({
     model: mode === 'fast' ? getFlashModel() : getProModel(), temperature: 0.15,
-    maxTokens: maxTokens || (mode === 'fast' ? 8192 : 16384),
+    maxTokens: maxTokens || MAX_MODEL_OUTPUT_TOKENS,
     thinking: { type: mode === 'fast' ? 'disabled' : 'enabled' },
     ...(mode === 'fast' ? {} : { reasoningEffort: 'low' }),
     responseFormat: { type: 'json_object' }, signal, requestTimeoutMs, maxAttempts: 1
@@ -1339,7 +1365,7 @@ export function createLaborContractAnalysisWorkflow({
             fileName: String(file.originalname || file.originalName || '上传文件'),
             role: String(file.role || fileRefsById.get(String(file.id || ''))?.role || ''),
             pageCount: Number(result?.pageCount) || null,
-            text
+            text, parseMetadata: result.metadata
           })
           else parseErrors.push(`${file.originalname || '上传文件'}：未提取到可分析文本`)
         } catch (error) {
@@ -1526,7 +1552,7 @@ export function createLaborContractFollowupWorkflow({
     {
       model: mode === 'fast' ? getFlashModel() : getProModel(),
       temperature: 0.2,
-      maxTokens: 3000,
+      maxTokens: MAX_MODEL_OUTPUT_TOKENS,
       thinking: { type: mode === 'fast' ? 'disabled' : 'enabled' },
       ...(mode === 'fast' ? {} : { reasoningEffort: 'low' }),
       signal
@@ -1536,7 +1562,7 @@ export function createLaborContractFollowupWorkflow({
     yield* streamChat(systemPrompt, userMessage, {
       model: mode === 'fast' ? getFlashModel() : getProModel(),
       temperature: 0.2,
-      maxTokens: 3000,
+      maxTokens: MAX_MODEL_OUTPUT_TOKENS,
       thinking: { type: mode === 'fast' ? 'disabled' : 'enabled' },
       ...(mode === 'fast' ? {} : { reasoningEffort: 'low' }),
       signal
@@ -1561,12 +1587,19 @@ export function createLaborContractFollowupWorkflow({
       aliases: privacyAliases,
       extraTexts: [report, history, question]
     })
-    const userMessage = messageBuilder({
+    const messageContext = {
       question: privacyRedactor.mask(question),
       report: privacyRedactor.maskDeep(report),
-      documents: privacyRedactor.maskDocuments(sourceDocuments).map(({ fileName, text }) => ({ fileName, text })),
-      history: privacyRedactor.maskDeep(history.slice(-6))
-    })
+      documents: sourceDocuments.length ? [{ fileName: '本轮相关原文', text: formatMaterialBlocks(selectMaterialBlocks(privacyRedactor.maskDocuments(sourceDocuments), question, 24000).blocks) + '\n' + privacyRedactor.mask(indexedMaterialText(input.materialIndex)) + '\n' + (input.materialNotice || '') }] : [],
+      history: []
+    }
+    // Each serialized item is a complete question/answer pair. Preserve all
+    // pairs that fit alongside the actual report, source excerpts and output.
+    const selectedHistory = selectHistoryByTokens(privacyRedactor.maskDeep(history)
+      .map((item) => ({ role: 'user', content: JSON.stringify(item) })),
+    CONTEXT_WINDOW_TOKENS - MAX_MODEL_OUTPUT_TOKENS - CONTEXT_SAFETY_TOKENS
+      - estimateTokens(systemPrompt + messageBuilder(messageContext)) - 64)
+    const userMessage = messageBuilder({ ...messageContext, history: selectedHistory.history.map((item) => JSON.parse(item.content)) })
     const reportOnlyExplanation = /解释|说明|理解|含义|什么意思|为什么|扣分原因|报告中的/.test(question)
       && !/重新分析|重新评分|重新打分|重新核对|新风险|新增风险|再检查|有没有遗漏/.test(question)
     let response = !sourceDocuments.length && !reportOnlyExplanation
@@ -1618,7 +1651,10 @@ export function createLaborContractFollowupWorkflow({
     }
     if (signal?.aborted || isCancellationRequested()) throw new TaskCancelledError()
     if (response.finishReason === 'length') throw createAnalysisOutputError('劳动合同追问回复达到长度限制，未生成完整答案。', 'labor_followup_output_truncated')
-    const answer = textValue(privacyRedactor.restore(response.content), 16000)
+    const answerText = String(privacyRedactor.restore(response.content) || '').trim()
+    const answer = answerText && (selectedHistory.droppedMessages
+      ? `本轮上下文未纳入较早的 ${selectedHistory.droppedMessages} 次完整问答；如需结合早期讨论，请补充相关内容。\n\n${answerText}`
+      : answerText)
     if (!answer) throw createAnalysisOutputError('劳动合同追问未返回内容，请稍后重试。', 'labor_followup_output_empty')
     const result = {
       schemaVersion: 2,

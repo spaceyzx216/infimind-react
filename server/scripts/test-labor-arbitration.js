@@ -58,7 +58,7 @@ try {
   assert.equal(result.usage.total_tokens, 5900)
   assert.equal(captured.model, 'deepseek-flash')
   assert.equal(captured.thinking.type, 'disabled')
-  assert.equal(captured.max_tokens, 16384, '快速模式保留完整文书输出预算')
+  assert.equal(captured.max_tokens, 393216, '快速模式使用模型允许的最高输出预算')
   assert.ok(captured.messages[1].content.includes('第0条虚构对话'))
   const markdown = formatArbitrationResult(result)
   const headings = ['案件风险判断', '基本信息梳理', '请求事项分析', '核心争议点总结', '劳动仲裁答辩意见（草稿）']
@@ -85,7 +85,7 @@ try {
   const reply = await runLaborArbitration({ input: { action: 'followup', mode: 'thinking', message: '补充考勤情况。', history } })
   assert.equal(reply.conversationTitle, '', '拒绝把模型法律定性当作标题')
   assert.equal(captured.thinking.type, 'enabled')
-  assert.equal(captured.max_tokens, 32768, '思考与正文共用输出预算，深度模式为两者留足空间')
+  assert.equal(captured.max_tokens, 393216, '深度模式使用相同最高预算，保留原思考强度')
   await assert.rejects(runLaborArbitration({ input: { action: 'draft', message: '生成草稿' } }), (error) => error.code === 'arbitration_draft_missing')
   finishReason = 'length'
   await assert.rejects(runLaborArbitration({ input: { action: 'analyze', message: '初步分析' } }), (error) => error.code === 'arbitration_output_truncated')

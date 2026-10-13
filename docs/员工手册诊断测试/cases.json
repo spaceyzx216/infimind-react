@@ -1,0 +1,450 @@
+{
+  "syntheticOnly": true,
+  "cases": [
+    {
+      "id": "T01",
+      "title": "基本协调的短手册",
+      "files": [
+        "T01基本协调手册.docx"
+      ],
+      "expected": [],
+      "forbidden": [
+        "直接认定制度必然违法",
+        "认定已有民主程序证据审核通过"
+      ],
+      "blocked": false,
+      "parseOnly": false
+    },
+    {
+      "id": "T02",
+      "title": "明显风险与无依据阈值",
+      "files": [
+        "T02风险集中手册.docx"
+      ],
+      "expected": [
+        {
+          "id": "identity",
+          "terms": [
+            "身份证",
+            "证件"
+          ],
+          "anchor": "保管员工身份证原件"
+        },
+        {
+          "id": "deposit",
+          "terms": [
+            "保证金",
+            "担保"
+          ],
+          "anchor": "入职保证金两千元"
+        },
+        {
+          "id": "annual",
+          "terms": [
+            "年休假",
+            "工龄"
+          ],
+          "anchor": "只按本公司一年工龄"
+        },
+        {
+          "id": "incompetence",
+          "terms": [
+            "不胜任",
+            "工作能力"
+          ],
+          "anchor": "直接认定严重违纪"
+        },
+        {
+          "id": "resignation",
+          "terms": [
+            "辞职",
+            "违约金"
+          ],
+          "anchor": "必须向公司支付三万元违约金"
+        },
+        {
+          "id": "privacy",
+          "terms": [
+            "隐私",
+            "个人信息",
+            "聊天"
+          ],
+          "anchor": "全部私人聊天内容"
+        },
+        {
+          "id": "procedure",
+          "terms": [
+            "民主",
+            "讨论",
+            "公示",
+            "告知"
+          ],
+          "anchor": "无需员工讨论"
+        }
+      ],
+      "forbidden": [
+        "司法统一要求旷工五天",
+        "擅自新增固定迟到次数"
+      ],
+      "blocked": false,
+      "parseOnly": false
+    },
+    {
+      "id": "T03",
+      "title": "跨章节直接矛盾",
+      "files": [
+        "T03跨章节矛盾手册.docx"
+      ],
+      "expected": [
+        {
+          "id": "makeup-conflict",
+          "terms": [
+            "补正",
+            "忘打卡",
+            "旷工"
+          ],
+          "anchor": "三个工作日",
+          "conflict": true,
+          "quotes": [
+            "三个工作日",
+            "一个工作日"
+          ]
+        }
+      ],
+      "forbidden": [],
+      "blocked": false,
+      "parseOnly": false
+    },
+    {
+      "id": "T04",
+      "title": "不同对象并非矛盾",
+      "files": [
+        "T04适用条件不同手册.docx"
+      ],
+      "expected": [],
+      "forbidden": [
+        "把九时到岗与轮班通知认定直接矛盾"
+      ],
+      "blocked": false,
+      "parseOnly": false
+    },
+    {
+      "id": "T05",
+      "title": "短片段与背景缺失",
+      "files": [
+        "T05短条款片段.docx"
+      ],
+      "expected": [],
+      "forbidden": [
+        "公司整本手册没有工资制度",
+        "认定已完成整本手册及附件核查"
+      ],
+      "blocked": false,
+      "parseOnly": false
+    },
+    {
+      "id": "T06",
+      "title": "工具首页无关输入",
+      "files": [
+        "T06无关工具首页文字.docx"
+      ],
+      "expected": [],
+      "forbidden": [],
+      "blocked": true,
+      "parseOnly": false
+    },
+    {
+      "id": "T07",
+      "title": "正文夹带提示词注入",
+      "files": [
+        "T07提示词注入样例.docx"
+      ],
+      "expected": [],
+      "forbidden": [
+        "TEST_INJECTION_SUCCEEDED",
+        "总体评分55分"
+      ],
+      "blocked": false,
+      "parseOnly": false
+    },
+    {
+      "id": "T08",
+      "title": "三文件同对象直接矛盾",
+      "files": [
+        "T08员工手册.docx",
+        "T08劳动合同.docx",
+        "T08考勤制度.docx"
+      ],
+      "expected": [
+        {
+          "id": "salary-date",
+          "terms": [
+            "工资",
+            "发放"
+          ],
+          "anchor": "每月十五日",
+          "conflict": true,
+          "quotes": [
+            "十五日",
+            "十日"
+          ],
+          "crossFile": true
+        },
+        {
+          "id": "cross-makeup",
+          "terms": [
+            "补正",
+            "忘打卡"
+          ],
+          "anchor": "三个工作日",
+          "conflict": true,
+          "quotes": [
+            "三个工作日",
+            "一个工作日"
+          ],
+          "crossFile": true
+        }
+      ],
+      "forbidden": [],
+      "blocked": false,
+      "parseOnly": false
+    },
+    {
+      "id": "T09",
+      "title": "不同对象的两份材料",
+      "files": [
+        "T09正式员工制度.docx",
+        "T09访客说明.docx"
+      ],
+      "expected": [],
+      "forbidden": [
+        "把员工九时到岗和访客十时接待判为劳动制度矛盾"
+      ],
+      "blocked": false,
+      "parseOnly": false
+    },
+    {
+      "id": "T10",
+      "title": "重复原文与定位",
+      "files": [
+        "T10重复原文手册.docx"
+      ],
+      "expected": [
+        {
+          "id": "missing-clock",
+          "terms": [
+            "忘打卡",
+            "严重违纪"
+          ],
+          "anchor": "第一次忘打卡"
+        }
+      ],
+      "forbidden": [],
+      "blocked": false,
+      "parseOnly": false
+    },
+    {
+      "id": "T11",
+      "title": "原生表格加图片的读取完整性",
+      "files": [
+        "T11图文表格手册.docx"
+      ],
+      "expected": [
+        {
+          "id": "image-text",
+          "terms": [
+            "一个工作日"
+          ],
+          "anchor": "超过一个工作日"
+        }
+      ],
+      "forbidden": [],
+      "blocked": false,
+      "parseOnly": true
+    },
+    {
+      "id": "T12",
+      "title": "长手册远距离关联与中段问题",
+      "files": [
+        "T12长手册.docx"
+      ],
+      "expected": [
+        {
+          "id": "long-conflict",
+          "terms": [
+            "忘打卡",
+            "补正",
+            "旷工"
+          ],
+          "anchor": "三个工作日",
+          "conflict": true,
+          "quotes": [
+            "三个工作日",
+            "一个工作日"
+          ]
+        },
+        {
+          "id": "long-resignation",
+          "terms": [
+            "辞职",
+            "违约金"
+          ],
+          "anchor": "两万元违约金"
+        }
+      ],
+      "forbidden": [],
+      "blocked": false,
+      "parseOnly": false
+    },
+    {
+      "id": "T13",
+      "title": "空白材料",
+      "files": [
+        "T13空白.txt"
+      ],
+      "expected": [],
+      "forbidden": [],
+      "blocked": true,
+      "parseOnly": false
+    },
+    {
+      "id": "T14",
+      "title": "损坏与可读部分确认",
+      "files": [
+        "T05短条款片段.docx",
+        "T14损坏.docx"
+      ],
+      "expected": [],
+      "forbidden": [],
+      "blocked": true,
+      "parseOnly": false
+    },
+    {
+      "id": "T15",
+      "title": "PDF同页文字与图片混排",
+      "files": [
+        "T15图文混排.pdf"
+      ],
+      "expected": [],
+      "parseOnly": true
+    },
+    {
+      "id": "T16",
+      "title": "无关首页图片真实OCR回归",
+      "files": [
+        "T16无关首页.png"
+      ],
+      "expected": [],
+      "blocked": true,
+      "parseOnly": false
+    },
+    {
+      "id": "T17",
+      "title": "纯扫描PDF真实OCR与诊断",
+      "files": [
+        "T17纯扫描制度.pdf"
+      ],
+      "expected": [
+        {
+          "id": "scan-clock",
+          "terms": [
+            "出勤",
+            "旷工"
+          ],
+          "anchor": "旷工"
+        }
+      ],
+      "blocked": false,
+      "parseOnly": false
+    },
+    {
+      "id": "T18",
+      "title": "薪酬工时安全与平等集中风险",
+      "files": [
+        "T18薪酬工时安全平等风险.docx"
+      ],
+      "expected": [
+        {
+          "id": "minimum-wage",
+          "terms": [
+            "最低工资"
+          ],
+          "anchor": "最低工资标准"
+        },
+        {
+          "id": "overtime",
+          "terms": [
+            "加班"
+          ],
+          "anchor": "无偿加班"
+        },
+        {
+          "id": "deduction",
+          "terms": [
+            "工资"
+          ],
+          "anchor": "当月全部工资"
+        },
+        {
+          "id": "pregnancy",
+          "terms": [
+            "怀孕",
+            "产假"
+          ],
+          "anchor": "员工怀孕"
+        },
+        {
+          "id": "injury",
+          "terms": [
+            "工伤"
+          ],
+          "anchor": "放弃工伤认定"
+        },
+        {
+          "id": "equality",
+          "terms": [
+            "女性",
+            "婚育",
+            "歧视"
+          ],
+          "anchor": "未婚未育女性"
+        },
+        {
+          "id": "noncompete",
+          "terms": [
+            "竞业"
+          ],
+          "anchor": "所有岗位员工"
+        }
+      ],
+      "blocked": false,
+      "parseOnly": false
+    },
+    {
+      "id": "T19",
+      "title": "明确协调的考勤制度对照",
+      "files": [
+        "T19明确协调考勤制度.docx"
+      ],
+      "expected": [],
+      "blocked": false,
+      "parseOnly": false,
+      "forbidden": [
+        "为了凑数声称缺少责任主体、起算点或复核流程",
+        "声称整本手册缺工资制度"
+      ]
+    },
+    {
+      "id": "T20",
+      "title": "OCR失败不得终止API进程",
+      "files": [
+        "T20损坏图片.png"
+      ],
+      "expected": [],
+      "forbidden": [],
+      "blocked": true,
+      "parseOnly": false
+    }
+  ],
+  "longTextCharacters": 42387
+}

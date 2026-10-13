@@ -1,0 +1,99 @@
+{
+  "syntheticOnly": true,
+  "cases": [
+    {
+      "id": "R21",
+      "title": "到岗同义表达",
+      "files": [
+        "R21到岗安排.txt",
+        "R21准点安排.txt"
+      ],
+      "expected": [],
+      "blocked": false,
+      "parseOnly": false,
+      "reviewExpected": {
+        "issueCount": 1,
+        "kind": "conflict",
+        "reason": "到岗同义表达"
+      }
+    },
+    {
+      "id": "R22",
+      "title": "发薪与薪金表达",
+      "files": [
+        "R22发薪安排.txt",
+        "R22薪金安排.txt"
+      ],
+      "expected": [],
+      "blocked": false,
+      "parseOnly": false,
+      "reviewExpected": {
+        "issueCount": 1,
+        "kind": "conflict",
+        "reason": "发薪与薪金表达"
+      }
+    },
+    {
+      "id": "R23",
+      "title": "同主题不同事项",
+      "files": [
+        "R23考勤设备.txt",
+        "R23考勤时间.txt"
+      ],
+      "expected": [],
+      "blocked": false,
+      "parseOnly": false,
+      "reviewExpected": {
+        "issueCount": 0,
+        "kind": null,
+        "reason": "同主题不同事项"
+      }
+    },
+    {
+      "id": "R24",
+      "title": "适用范围例外",
+      "files": [
+        "R24到岗总则.txt",
+        "R24轮班安排.txt"
+      ],
+      "expected": [],
+      "blocked": false,
+      "parseOnly": false,
+      "reviewExpected": {
+        "issueCount": 0,
+        "kind": null,
+        "reason": "适用范围例外"
+      }
+    },
+    {
+      "id": "R25",
+      "title": "法定节假日补休替代工资",
+      "files": [
+        "R25节假日安排.txt"
+      ],
+      "expected": [],
+      "blocked": false,
+      "parseOnly": false,
+      "reviewExpected": {
+        "issueCount": 1,
+        "kind": "clause",
+        "reason": "法定节假日补休替代工资"
+      }
+    },
+    {
+      "id": "R26",
+      "title": "明确考勤补正条件",
+      "files": [
+        "R26考勤记录更正.txt"
+      ],
+      "expected": [],
+      "blocked": false,
+      "parseOnly": false,
+      "reviewExpected": {
+        "issueCount": 0,
+        "kind": null,
+        "reason": "明确考勤补正条件"
+      }
+    }
+  ]
+}

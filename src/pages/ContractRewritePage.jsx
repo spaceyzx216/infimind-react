@@ -1,10 +1,11 @@
+import MarkdownBody from '../components/MarkdownBody.jsx'
+import { selectConversationHistory } from '../utils/context-budget.js'
 import { useComposerSend } from '../hooks/useComposerSend'
 import QueuedMessages from '../components/QueuedMessages'
 import SideChatEmptyState from '../components/SideChatEmptyState'
 import ToolComposerControls from '../components/ToolComposerControls'
+import MaterialReviewPanel from '../components/MaterialReviewPanel.jsx'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import {
   Brain,
   ChevronLeft,
@@ -45,10 +46,10 @@ const getExtension = (name = '') => name.toLowerCase().match(/\.[^.]+$/)?.[0] ||
 const isSupported = (file) => ACCEPTED.includes(getExtension(file.name)) && file.size <= MAX_FILE_SIZE
 const inline = (text) => text.split(/(\*\*[^*]+\*\*)/g).map((part, index) => part.startsWith('**') ? <strong key={index}>{part.slice(2, -2)}</strong> : <React.Fragment key={index}>{part}</React.Fragment>)
 const createId = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-const stripLegacyFileMarkers = (text = '') => text
-  .split('\n')
-  .filter((line) => !/^===\s*文件\s*[：:]/.test(line.trim()))
-  .join('\n')
+const isFileMarker = (line = '') => /^===\s*文件\s*[：:]/.test(line.trim())
+const hasReviewDocument = (message) => Boolean(message && (
+  message.contractText || message.originalText || message.rewrite || message.revisions?.length
+))
 const createThread = (title = '新对话', taskId = null) => ({ id: createId('thread'), title, taskId, createdAt: Date.now(), updatedAt: Date.now(), messages: [] })
 const asText = (value, fallback = '') => typeof value === 'string' ? value : fallback
 const asTimestamp = (value, fallback = Date.now()) => Number.isFinite(Number(value)) ? Number(value) : fallback
@@ -162,14 +163,13 @@ const createRequestAbortError = () => {
   error.code = 'REQUEST_ABORTED'
   return error
 }
-const buildConversationHistory = (messages = []) => messages
-  .slice(-10)
+const buildConversationHistory = (messages = [], question = '') => selectConversationHistory(messages
   .map((message) => {
     if (!message?.content || !['user', 'assistant'].includes(message.role)) return null
     const prefix = message.interrupted ? '【上一轮回答在用户插话时被中断，以下内容可能不完整】\n' : ''
     return { role: message.role, content: `${prefix}${message.content}` }
   })
-  .filter(Boolean)
+  .filter(Boolean), { question }).history
 
 const LEVEL_META = {
   高: { key: 'high', label: '高风险', cls: 'level-high' },
@@ -188,8 +188,9 @@ const actionMeta = (action) => ACTION_META[action] || ACTION_META.modify
 
 const buildDisplayRevisions = (revisions = []) => {
   let markerNumber = 0
-  return revisions.flatMap((revision) => {
-    const edits = Array.isArray(revision.localizedEdits) ? revision.localizedEdits : []
+  return revisions.filter((revision) => revision && typeof revision === 'object' && !Array.isArray(revision)).flatMap((revision) => {
+    const edits = Array.isArray(revision.localizedEdits)
+      ? revision.localizedEdits.filter((edit) => edit && typeof edit === 'object' && !Array.isArray(edit)) : []
     if (revision.action === 'add' || !edits.length) return [{ ...revision, isLocalized: false, markerNumber: null }]
     return edits.map((edit, index) => {
       markerNumber += 1
@@ -199,16 +200,17 @@ const buildDisplayRevisions = (revisions = []) => {
         parentFindingId: revision.findingId,
         memberFindingIds: Array.isArray(edit.memberFindingIds) ? edit.memberFindingIds : revision.memberFindingIds,
         isLocalized: true,
-        markerNumber,
+        markerNumber: Number.isInteger(edit.markerNumber) && edit.markerNumber > 0 ? edit.markerNumber : markerNumber,
         operation: (edit.operation || 'replace') === 'replace' && !edit.replacementText ? 'notice' : edit.operation || 'replace',
         lineStart: Number.isInteger(edit.lineStart) ? edit.lineStart : revision.lineStart,
         lineEnd: Number.isInteger(edit.lineEnd) ? edit.lineEnd : revision.lineEnd,
         originalText: edit.targetQuote || revision.quoteText || revision.originalText,
         quoteText: edit.targetQuote || revision.quoteText,
-        quoteSpans: Array.isArray(edit.quoteSpans) ? edit.quoteSpans : [],
+        quoteSpans: Array.isArray(edit.quoteSpans) ? edit.quoteSpans.filter((span) => span && typeof span === 'object') : [],
         quoteStatus: Array.isArray(edit.quoteSpans) && edit.quoteSpans.length ? 'exact' : 'none',
         rewrittenText: edit.replacementText || '',
         riskNote: edit.riskNote || revision.riskNote,
+        noticeText: edit.noticeText || '',
         fullRewrittenText: revision.rewrittenText || '',
         localizationStatus: edit.localizationStatus || ''
       }
@@ -240,7 +242,7 @@ function MarkedLineText({ raw, spans }) {
   let cursor = 0
   merged.forEach((span, index) => {
     if (span.start > cursor) parts.push(<React.Fragment key={`t-${index}`}>{text.slice(cursor, span.start)}</React.Fragment>)
-    parts.push(<span className="quote-mark" key={`m-${index}`}>{inline(text.slice(span.start, span.end))}{span.markerNumbers.length ? <sup className="quote-marker">{span.markerNumbers.join('·')}</sup> : null}</span>)
+    parts.push(<span className="quote-mark" key={`m-${index}`}>{inline(text.slice(span.start, span.end))}{span.markerNumbers.length ? <sup className="quote-marker">{span.markerNumbers.slice().sort((a, b) => a - b).join('·')}</sup> : null}</span>)
     cursor = span.end
   })
   if (cursor < text.length) parts.push(<React.Fragment key="tail">{text.slice(cursor)}</React.Fragment>)
@@ -248,7 +250,9 @@ function MarkedLineText({ raw, spans }) {
 }
 
 export function RevisionDocument({ contractText, revisions, preserveFileMarkers = false }) {
-  const lines = useMemo(() => (preserveFileMarkers ? String(contractText || '') : stripLegacyFileMarkers(contractText || '')).split('\n'), [contractText, preserveFileMarkers])
+  // Server offsets refer to physical source lines. Hide marker presentation,
+  // never remove a line before applying those verified offsets.
+  const lines = useMemo(() => String(contractText || '').split('\n'), [contractText])
   const displayRevisions = useMemo(() => buildDisplayRevisions(Array.isArray(revisions) ? revisions : []), [revisions])
   const { byLine, quoteMarks } = useMemo(() => {
     const map = new Map()
@@ -283,6 +287,7 @@ export function RevisionDocument({ contractText, revisions, preserveFileMarkers 
           const line = raw.trim()
           const revs = byLine.get(i) || []
           const spans = quoteMarks.get(i)
+          if (!preserveFileMarkers && isFileMarker(raw)) return revs.length ? <div className="revision-stack" key={`marker-${i}`}>{revs.map((rev) => <SandwichBlock key={rev.findingId} revision={rev} />)}</div> : null
           if (!line) return revs.length ? <div className="revision-stack" key={`gap-${i}`}>{revs.map((rev) => <SandwichBlock key={rev.findingId} revision={rev} />)}</div> : null
           // Keep physical line indices for server-verified annotations, while
           // presenting multi-file boundaries as readable document titles.
@@ -292,12 +297,12 @@ export function RevisionDocument({ contractText, revisions, preserveFileMarkers 
           if (heading) {
             const Tag = `h${Math.min(heading[1].length + 1, 4)}`
             return <React.Fragment key={`l-${i}`}>
-              <Tag className="clause-heading">{heading[2]}</Tag>
+              <Tag className="clause-heading" data-source-line={i}>{heading[2]}</Tag>
               {revs.length > 0 && <div className="revision-stack">{revs.map((rev) => <SandwichBlock key={rev.findingId} revision={rev} />)}</div>}
             </React.Fragment>
           }
           return <React.Fragment key={`l-${i}`}>
-            <p className="clause-text">{spans ? <MarkedLineText raw={raw} spans={spans} /> : inline(line)}</p>
+            <p className="clause-text" data-source-line={i}>{spans ? <MarkedLineText raw={raw} spans={spans} /> : inline(line)}</p>
             {revs.length > 0 && <div className="revision-stack">{revs.map((rev) => <SandwichBlock key={rev.findingId} revision={rev} />)}</div>}
           </React.Fragment>
         })}
@@ -315,7 +320,7 @@ function SandwichBlock({ revision: rev }) {
     const suggestion = rev.operation === 'delete'
       ? '删除该问题片段'
       : rev.operation === 'notice'
-        ? (rev.riskNote || '请结合实际业务确认并补全该项')
+        ? (rev.noticeText || rev.riskNote || '请结合实际业务确认并补全该项')
       : (rev.rewrittenText || '请结合批注对该片段作局部调整')
     const showFullRevision = rev.fullRewrittenText && rev.fullRewrittenText !== rev.rewrittenText
     return (
@@ -354,7 +359,6 @@ function SandwichBlock({ revision: rev }) {
 // 每轮一个折叠条目，展开后罗列该轮新增的风险点（等级 + 标题 + 位置 + 风险摘要）。
 export function ReviewRoundsPanel({ rounds, thinking, finished = false, stoppedEarly = false, activeRound = null, interrupted = false }) {
   const t = useWorkspaceText()
-  const { settings } = useWorkspaceLayout()
   if (!rounds.length && !thinking) return null
   const totalFindings = rounds.reduce((sum, r) => sum + (r.newCount || 0), 0)
   return (
@@ -377,7 +381,7 @@ export function ReviewRoundsPanel({ rounds, thinking, finished = false, stoppedE
                   {round ? (round.newCount > 0 ? (t("新增 ") + (round.newCount) + t(" 条")) : t("未发现新问题")) : isThinking ? <Loader2 size={13} className="spinner" /> : interrupted && roundNum === activeRound ? t("连接中断") : finished ? stoppedEarly ? t("无需继续") : t("未执行") : t("待开始")}
                 </span>
               </div>
-              {settings.steps === 'detailed' && round && round.newFindings?.length > 0 && (
+              {round && round.newFindings?.length > 0 && (
                 <ul className="round-findings">
                   {round.newFindings.map((finding, idx) => {
                     const meta = levelMeta(finding.level)
@@ -386,7 +390,7 @@ export function ReviewRoundsPanel({ rounds, thinking, finished = false, stoppedE
                         <span className={`finding-level-tag ${meta.cls}`}>{meta.label}</span>
                         <span className="finding-title">{finding.title}</span>
                         {finding.location && <span className="finding-location">{finding.location}</span>}
-                        {finding.risk && <span className="finding-risk">{finding.risk}</span>}
+                        {finding.risk && <div className="finding-risk"><MarkdownBody content={finding.risk} /></div>}
                       </li>
                     )
                   })}
@@ -400,11 +404,11 @@ export function ReviewRoundsPanel({ rounds, thinking, finished = false, stoppedE
   )
 }
 
-export function downloadRevisionWord({ name = '合同审查稿', text = '', documentRevisions = [], preserveFileMarkers = false } = {}) {
+export function downloadRevisionWord({ name = '合同审查稿', text = '', documentRevisions = [], preserveFileMarkers = false, suffix = '审查批注稿' } = {}) {
     const revisions = buildDisplayRevisions(Array.isArray(documentRevisions) ? documentRevisions : [])
     const renderInline = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     // 按行号把修订块分组（与 RevisionDocument 的 byLine 逻辑一致：add 挂在 insertAfterLine 后）
-    const lines = (preserveFileMarkers ? text : stripLegacyFileMarkers(text)).split('\n')
+    const lines = String(text || '').split('\n')
     const revByEndLine = new Map()
     const marksByLine = new Map()
     revisions.forEach((rev) => {
@@ -432,12 +436,19 @@ export function downloadRevisionWord({ name = '合同审查稿', text = '', docu
         markerNumber: span.markerNumber
       })).filter((span) => span.end > span.start).sort((left, right) => left.start - right.start)
       if (!marks.length) return renderInline(text)
+      const merged = []
+      marks.forEach((mark) => {
+        const last = merged.at(-1)
+        if (last && mark.start <= last.end) {
+          last.end = Math.max(last.end, mark.end)
+          if (mark.markerNumber && !last.markerNumbers.includes(mark.markerNumber)) last.markerNumbers.push(mark.markerNumber)
+        } else merged.push({ ...mark, markerNumbers: mark.markerNumber ? [mark.markerNumber] : [] })
+      })
       let cursor = 0
       let html = ''
-      marks.forEach((mark) => {
-        if (mark.start < cursor) return
+      merged.forEach((mark) => {
         html += renderInline(text.slice(cursor, mark.start))
-        html += `<span class="mark">${renderInline(text.slice(mark.start, mark.end))}${mark.markerNumber ? `<sup>${mark.markerNumber}</sup>` : ''}</span>`
+        html += `<span class="mark">${renderInline(text.slice(mark.start, mark.end))}${mark.markerNumbers.length ? `<sup>${mark.markerNumbers.slice().sort((a, b) => a - b).join('·')}</sup>` : ''}</span>`
         cursor = mark.end
       })
       return html + renderInline(text.slice(cursor))
@@ -448,9 +459,9 @@ export function downloadRevisionWord({ name = '合同审查稿', text = '', docu
         const replacement = rev.operation === 'delete'
           ? '删除该问题片段'
           : rev.operation === 'notice'
-            ? (rev.riskNote || '请结合实际业务确认并补全该项')
+            ? (rev.noticeText || rev.riskNote || '请结合实际业务确认并补全该项')
             : (rev.rewrittenText || '请结合批注局部调整')
-        const fallbackClause = rev.localizationStatus === 'finding-fallback' && rev.fullRewrittenText && rev.fullRewrittenText !== rev.rewrittenText
+        const fallbackClause = ['finding-fallback', 'handbook-notice'].includes(rev.localizationStatus) && rev.fullRewrittenText && rev.fullRewrittenText !== rev.rewrittenText
           ? `<p class="note"><b>完整条款建议</b>${renderInline(rev.fullRewrittenText)}</p>` : ''
         return `<div class="local-edit"><span class="badge">${rev.markerNumber}</span><div><p><b>${label}</b>${renderInline(replacement)}</p>${rev.riskNote ? `<p class="note"><b>批注</b>${renderInline(rev.riskNote)}</p>` : ''}${fallbackClause}</div></div>`
       }
@@ -463,6 +474,7 @@ export function downloadRevisionWord({ name = '合同审查稿', text = '', docu
       const line = raw.trim()
       const revs = revByEndLine.get(i) || []
       const revHtml = revs.map(renderRevBlock).join('')
+      if (!preserveFileMarkers && isFileMarker(raw)) return revHtml
       if (!line) return revHtml
       // Markdown 前缀被剥离后，服务端基于原始行计算的字符偏移已不再适用；
       // 标题与列表项仅输出正文，避免 Word 中出现错位标记。
@@ -474,7 +486,7 @@ export function downloadRevisionWord({ name = '合同审查稿', text = '', docu
     const html = `<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:SimSun,serif;margin:48px;color:#111;line-height:1.85}h1{text-align:center;font-size:22pt}h2{margin-top:24px;font-size:15pt}p{font-size:12pt}p.li{margin-left:24px;text-indent:-12pt}.mark{background:#fff0e5;border-bottom:1px solid #e35f00}.mark sup,.badge{color:#fff;background:#e35f00;border-radius:9px;font-size:8pt;font-weight:bold}.mark sup{padding:1px 4px;margin-left:2px}.local-edit{display:flex;margin:5px 0 12px 22px;padding:7px 10px;background:#fffaf6;border:1px solid #f2ded0}.badge{display:inline-block;min-width:16px;height:16px;margin-right:8px;text-align:center}.local-edit p,.compact-rev p{margin:0;font-size:10.5pt}.local-edit b,.compact-rev b{margin-right:8px;color:#9e352d}.note{margin-top:4px!important;color:#765c50}.compact-rev{margin:7px 0 14px 22px;padding:8px 12px;border-left:3px solid #fd7002;background:#fafafa}.anchor{color:#777}</style></head><body>${htmlBody}</body></html>`
     const url = URL.createObjectURL(new Blob([html], { type: 'application/msword' }))
     const anchor = document.createElement('a')
-    anchor.href = url; anchor.download = `${name}-审查批注稿.doc`; anchor.click(); URL.revokeObjectURL(url)
+    anchor.href = url; anchor.download = `${name}-${suffix}.doc`; anchor.click(); URL.revokeObjectURL(url)
   }
 
 function ContractRewritePage() {
@@ -542,7 +554,7 @@ function ContractRewritePage() {
     if (!thread?.taskId) return
     if (requestRunsRef.current.has(thread.id) || watchThreadsRef.current.has(thread.id)) return
     const lastMessage = thread.messages[thread.messages.length - 1]
-    if (lastMessage?.role === 'assistant' && (lastMessage.completed || lastMessage.interrupted || lastMessage.failed)) return
+    if (lastMessage?.role === 'assistant' && ((lastMessage.completed && hasReviewDocument(lastMessage)) || lastMessage.interrupted || lastMessage.failed)) return
     const assistantId = lastMessage?.role === 'assistant' ? lastMessage.id : null
     let cancelled = false
     watchThreadsRef.current.add(thread.id)
@@ -733,6 +745,7 @@ function ContractRewritePage() {
     updateThreadRequest(threadId, { loading: true, error: '', cancelPending: false, stage: 'resuming' })
     let analysis = ''
     let review = ''
+    let reviewRounds = []
     try {
       for (let reconnect = 0; reconnect < 20; reconnect += 1) {
         const response = await authFetch(`/api/tasks/${taskId}/events?after=${seq}`, { headers: { Accept: 'text/event-stream' }, signal: controller.signal })
@@ -740,10 +753,25 @@ function ContractRewritePage() {
         await readSSE(response, (event, data) => {
           seq = Math.max(seq, Number(data?._seq) || 0)
           if (event === 'stage.start') {
+            if (data.stage === 'analysis') {
+              analysis = ''
+              run.partialContent = ''
+              updateMessage(threadId, assistantId, { content: '', analysis: '' })
+            }
             updateThreadRequest(threadId, { stage: data.stage || '' })
             updateMessage(threadId, assistantId, { status: data.label || '正在处理…' })
           }
           if (event === 'stage.progress') updateMessage(threadId, assistantId, { status: data.message || '正在处理…' })
+          if (event === 'review.round' && data.phase === 'end' && !data.recovered) {
+            reviewRounds = [...reviewRounds.filter((item) => item.round !== data.round), {
+              round: data.round, newCount: data.newCount, newFindings: data.newFindings || []
+            }]
+            updateMessage(threadId, assistantId, { reviewRounds })
+          }
+          if (event === 'stage.complete' && data.stage === 'review' && Array.isArray(data.roundSnapshots)) {
+            reviewRounds = data.roundSnapshots
+            updateMessage(threadId, assistantId, { reviewRounds })
+          }
           if (event === 'analysis.delta') { analysis += data.content || ''; run.partialContent = analysis; updateMessage(threadId, assistantId, { content: analysis, analysis, status: '正在分析合同结构…' }) }
           if (event === 'review.delta') {
             review += data.content || ''
@@ -785,9 +813,21 @@ function ContractRewritePage() {
       status: task?.status === 'succeeded' ? '' : (task?.errorSummary || STATUS_LABELS[task.status] || ''),
       completed: task?.status === 'succeeded',
       failed: task?.status === 'failed',
+      taskId: task.id,
+      reviewComplete: result.reviewComplete,
       interrupted: task?.status === 'cancelled'
     })
     return task
+  }
+
+  const continueReview = async (message) => {
+    try {
+      const response = await authFetch(`/api/tasks/${message.taskId}/retry`, { method: 'POST' })
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.error || '暂时无法继续核对，请稍后再试。')
+      updateMessage(activeThread.id, message.id, { failed: false, status: '继续核对尚未完成的内容…' })
+      void resumeThreadTask(activeThread.id, message.taskId, message.id)
+    } catch (error) { updateThreadRequest(activeThread.id, { error: error.message }) }
   }
 
   const interruptActiveRequest = async (threadId, { waitForTask = false } = {}) => {
@@ -854,7 +894,7 @@ function ContractRewritePage() {
     }
     const requestMode = snapshot?.mode || mode
     const content = instructionSnapshot || '请根据合同类型匹配知识库中的优秀模板和已批注风险案例，完成合规审查并生成带修改说明的合同稿。'
-    const history = buildConversationHistory(historyMessages)
+    const history = buildConversationHistory(historyMessages, content)
     const uploadedFiles = filesSnapshot.map((file) => ({ name: file.name, size: file.size }))
     const userMessage = { id: createId('message'), role: 'user', content, files: uploadedFiles, createdAt: Date.now() }
     const shouldRefineTitle = sourceThread.messages.length === 0
@@ -905,16 +945,25 @@ function ContractRewritePage() {
         const applyTaskEvent = (event, data) => {
           lastEventSeq = Math.max(lastEventSeq, Number(data?._seq) || 0)
           if (event === 'stage.start') {
+            if (data.stage === 'analysis') {
+              analysis = ''
+              run.partialContent = ''
+              updateMessage(threadId, assistantId, { content: '', analysis: '' })
+            }
             updateThreadRequest(threadId, { stage: data.stage || '' })
             updateMessage(threadId, assistantId, { status: data.label || '正在处理…' })
           }
           if (event === 'stage.progress') {
             updateMessage(threadId, assistantId, { status: data.message || '正在处理…' })
           }
+          if (event === 'stage.complete' && data.stage === 'review' && Array.isArray(data.roundSnapshots)) {
+            reviewRounds = data.roundSnapshots
+            updateMessage(threadId, assistantId, { reviewRounds })
+          }
           if (event === 'review.round') {
             // 三轮审核进度：start 显示当前轮次状态，end 追加本轮新增问题清单
             updateThreadRequest(threadId, { stage: 'review' })
-            if (data.phase === 'end') {
+            if (data.phase === 'end' && !data.recovered) {
               // 本轮结束：记录新增问题快照，供对话区实时罗列
               const snapshot = {
                 round: Number(data.round) || 0,
@@ -963,7 +1012,7 @@ function ContractRewritePage() {
               status: '正在生成修订稿…'
             })
           }
-          if (event === 'error') throw new Error(data.message || '审查未完成，请稍后重试。')
+          if (event === 'error') updateThreadRequest(threadId, { error: data.message || '审查暂未完成，已完成进度保留。' })
         }
         let latestTask = null
         for (let reconnect = 0; reconnect < 20; reconnect += 1) {
@@ -979,12 +1028,17 @@ function ContractRewritePage() {
         }
         if (!latestTask || !['succeeded', 'failed', 'cancelled'].includes(latestTask.status)) throw new Error('任务进度连接中断，请稍后从任务列表恢复。')
         const persistedResult = latestTask.result || {}
-        if (!analysis && persistedResult.analysis) analysis = persistedResult.analysis
-        if (!review && persistedResult.review) review = persistedResult.review
+        if (persistedResult.analysis) analysis = persistedResult.analysis
+        if (persistedResult.review) review = persistedResult.review
+        if (Array.isArray(persistedResult.reviewRounds)) reviewRounds = persistedResult.reviewRounds
         if (!originalText && persistedResult.contractText) originalText = persistedResult.contractText
         if (!rewriteRevisions.length && Array.isArray(persistedResult.revisions)) rewriteRevisions = persistedResult.revisions
         if (!rewriteStats && persistedResult.stats) rewriteStats = persistedResult.stats
-        if (latestTask.status !== 'succeeded') throw new Error(latestTask.errorSummary || '任务未完成，请稍后重试。')
+        if (latestTask.status !== 'succeeded') {
+          applyRecoveredTask(threadId, assistantId, latestTask)
+          if (persistedResult.contractText && activeThreadIdRef.current === threadId) { setDocumentMessageId(assistantId); setDocumentOpen(true) }
+          return
+        }
         const finalContent = analysis ? (review ? `${analysis}\n\n---\n\n${review}` : analysis) : (review || '合同审查已完成。')
         updateMessage(threadId, assistantId, {
           content: finalContent,
@@ -1085,7 +1139,7 @@ function ContractRewritePage() {
     ? <button className="icon-button" aria-label={t("返回对话")} onClick={() => setDocumentOpen(false)}><ChevronLeft size={21} /></button>
     : null
   const composer = (
-    <div className="composer-wrap"><div className="composer"><QueuedMessages composer={queuedComposer} />
+    <div className="composer-wrap"><MaterialReviewPanel taskId={[...(activeThread?.messages || [])].reverse().find((m) => m.taskId)?.taskId || activeThread?.taskId} running={Boolean(loading)} /><div className="composer"><QueuedMessages composer={queuedComposer} />
       <textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); sendMessage() } }} placeholder={t("上传合同或输入你特别关注的审查重点…")} />
       {files.length > 0 && <div className="pending-files">{files.map((file) => <span key={file.name}><FileText size={14} />{file.name}<button aria-label={(t("移除 ") + (file.name))} onClick={() => setFiles((items) => items.filter((item) => item !== file))}><X size={13} /></button></span>)}</div>}
       <div className="composer-bottom"><ToolComposerControls onUpload={() => inputRef.current?.click()} mode={mode} onModeChange={setMode} messages={activeThread?.messages || []} question={instruction} hasPendingFiles={files.length > 0}><button className="tool-text mobile-hide" type="button" onClick={() => setTaskModalOpen(true)}><Menu size={18} />{t("更多")}</button></ToolComposerControls><button className="voice-send" onClick={queuedComposer.send} disabled={Boolean(activeRequest.cancelPending) || (!loading && !hasComposerInput)} aria-label={queuedComposer.label || t(composerActionLabel)} title={composerActionLabel}>{loading ? (hasComposerInput ? <Send size={19} /> : <Square size={17} />) : <Send size={19} />}</button></div>
@@ -1096,7 +1150,7 @@ function ContractRewritePage() {
     <section className="document-column">
       <header className="document-header"><span>{t("审查修订稿")}</span><div><button title={t("复制原文")} onClick={() => navigator.clipboard?.writeText(documentContractText)}><Copy size={18} />{t("复制")}</button><button title={t("下载 Word")} onClick={exportWord}><Download size={18} />{t("下载")}</button><button className="close-document" aria-label={t("关闭文档")} onClick={() => setDocumentOpen(false)}><X size={21} /></button></div></header>
       <div className="document-scroll">
-        {documentRevisions.length > 0
+        {documentContractText
           ? <RevisionDocument contractText={documentContractText} revisions={documentRevisions} />
           : <div className="document-empty"><FileText size={32} /><p>{selectedDocument?.status || t("暂无修订内容")}</p></div>}
         {documentRevisions.length > 0 && <aside className="revision-summary">
@@ -1109,7 +1163,7 @@ function ContractRewritePage() {
 
   return <>
     <ContractWorkbenchLayout
-      className={settings.analysisPanel && documentOpen ? 'document-expanded' : ''}
+      className={`contract-review${settings.analysisPanel && documentOpen ? ' document-expanded' : ''}`}
       sidebarCollapsed={sidebarCollapsed}
       hideSidebar={settings.analysisPanel && documentOpen}
       sidebar={sidebar}
@@ -1125,7 +1179,20 @@ function ContractRewritePage() {
           {!isSideChat && activeMessages.length === 0 && <div className="assistant-turn welcome-turn"><div><p>{t("你好，我是法飞飞合同审查助手。上传合同后，我会结合对应合同类型的优质模板和风险案例，帮你梳理风险、生成修改建议，并输出一份可继续编辑的批注稿。")}</p></div></div>}
           {activeMessages.map((message) => message.role === 'user'
             ? <div className="user-turn" key={message.id}><p>{message.content}</p>{message.files?.map((file) => <div className="attached-file" key={`${message.id}-${file.name}`}><FileText size={18} /><span>{file.name}</span><small>{Math.ceil(file.size / 1024)} KB</small></div>)}</div>
-: <div className="assistant-turn result-turn" key={message.id}><div>{message.status && !message.content ? <p className="assistant-status">{!message.interrupted && <Loader2 size={15} className="spinner" />}{t(message.status)}</p> : <>{message.content && <div className="assistant-content"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown></div>}{message.interrupted && <small className="message-interrupted">{t("已被新消息打断，以上内容可能不完整。")}</small>}{(message.reviewRounds?.length > 0 || (loading && stage === 'review' && activeMessages[activeMessages.length - 1]?.id === message.id)) && <ReviewRoundsPanel rounds={message.reviewRounds || []} thinking={loading && stage === 'review'} />}{message.failed && <small className="message-failed">{t("请检查服务配置后重新发送。")}</small>}{message.phase === 'rewrite' && (message.revisions?.length > 0 || message.contractText || message.rewrite) && <button className="open-document-card" onClick={() => openDocument(message.id)}><FileText size={25} /><span><strong>{t("商业合同审查批注稿")}</strong><small>{message.rewriteStats?.total ? ((message.rewriteStats.total) + t(" 个问题 · ") + (message.rewriteStats.blocks || message.revisions?.length || 0) + t(" 个就近标记 · ")) : (message.revisions?.length ? ((message.revisions.length) + t(" 个修订标记 · ")) : '')}{t("点击展开文档")}</small></span></button>}</>}</div></div>)}
+: <div className="assistant-turn result-turn" key={message.id}><div>
+              {message.status && <p className="assistant-status">{!message.interrupted && !message.failed && <Loader2 size={15} className="spinner" />}{t(message.status)}</p>}
+              {message.content && <div className="assistant-content"><MarkdownBody content={message.content} /></div>}
+              {message.interrupted && <small className="message-interrupted">{t("已被新消息打断，以上内容可能不完整。")}</small>}
+              {(message.reviewRounds?.length > 0 || (loading && stage === 'review' && activeMessages[activeMessages.length - 1]?.id === message.id)) && <ReviewRoundsPanel
+                rounds={message.reviewRounds || []}
+                thinking={loading && stage === 'review' && activeMessages[activeMessages.length - 1]?.id === message.id}
+                finished={Boolean(message.completed || message.failed)}
+                interrupted={Boolean(message.interrupted)}
+              />}
+              {message.failed && <small className="message-failed">{t(message.reviewComplete === false ? "已完成内容已保存，请继续核对剩余条款。" : "本次核对尚未结束，请查看具体原因后重试。")}</small>}
+              {message.failed && message.taskId && <button type="button" className="tool-text" disabled={loading} onClick={() => continueReview(message)}>{t("继续核对")}</button>}
+              {hasReviewDocument(message) && <button className="open-document-card" onClick={() => openDocument(message.id)}><FileText size={25} /><span><strong>{t("商业合同审查批注稿")}</strong><small>{message.rewriteStats?.total ? ((message.rewriteStats.total) + t(" 个问题 · ") + (message.rewriteStats.blocks || message.revisions?.length || 0) + t(" 个就近标记 · ")) : (message.revisions?.length ? ((message.revisions.length) + t(" 个修订标记 · ")) : '')}{t("点击展开文档")}</small></span></button>}
+            </div></div>)}
           {loading && <div className="assistant-turn loading-turn"><div><p>{t(status)}</p></div></div>}
           {error && <p className="chat-error">{error}</p>}
           {!isSideChat && !activeMessages.length && <div className="starter-prompts"><button onClick={() => setInstruction('请从甲方视角重点审查付款、验收和违约责任。')}>{t("从甲方视角审查付款与违约责任")}<span>→</span></button><button onClick={() => setInstruction('请检查合同是否缺少核心条款。')}>{t("检查是否缺少核心条款")}<span>→</span></button></div>}

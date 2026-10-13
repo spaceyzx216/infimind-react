@@ -1,3 +1,5 @@
+import MaterialReviewPanel from '../components/MaterialReviewPanel.jsx'
+import { selectConversationHistory } from '../utils/context-budget.js'
 import { useComposerSend } from '../hooks/useComposerSend'
 import QueuedMessages from '../components/QueuedMessages'
 import SideChatEmptyState from '../components/SideChatEmptyState'
@@ -669,10 +671,9 @@ function LaborConsultPage() {
     if ((!content && !selectedFiles.length) || isAsking || !activeConversation || inFlightRef.current.has(activeConversation.id)) return
     const conversationId = activeConversation.id
     const assistantId = createId('assistant')
-    const history = activeConversation.messages
+    const history = selectConversationHistory(activeConversation.messages
       .filter((message) => (message.type === 'user' || message.type === 'assistant') && message.content)
-      .slice(-6)
-      .map((message) => ({ role: message.type === 'user' ? 'user' : 'assistant', content: message.content }))
+      .map((message) => ({ role: message.type === 'user' ? 'user' : 'assistant', content: message.content })), { question: content }).history
 
     const uploadedFiles = selectedFiles.map((file) => ({ name: file.name, size: file.size }))
     const displayContent = content || `请分析我上传的 ${uploadedFiles.length} 份材料涉及的劳动用工问题。`
@@ -888,15 +889,15 @@ function LaborConsultPage() {
     patchRequest(activeConversation?.id, { error: describeRejection({ unsupported, overflow }) })
   }
   const removeFile = (name) => setFiles((items) => items.filter((item) => item.name !== name))
-  const deleteConversation = (event, conversationId) => {
+  const deleteConversation = async (event, conversationId) => {
     event.stopPropagation()
     if (inFlightRef.current.has(conversationId)) return
-    // 通知服务端释放该会话留存的上传材料（失败不影响本地删除）
-    authFetch('/api/labor-consult/forget', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversationId })
-    }).catch(() => {})
+    try {
+      const response = await authFetch('/api/labor-consult/forget', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversationId })
+      })
+      if (!response.ok) throw new Error((await response.json()).error || '会话材料清理未完成，请重试删除。')
+    } catch (error) { patchRequest(conversationId, { error: error.message || '会话材料清理未完成，请重试删除。' }); return }
     setConversations((items) => {
       const remaining = items.filter((item) => item.id !== conversationId)
       return remaining.length ? remaining : [createConversation()]
@@ -1046,7 +1047,7 @@ function LaborConsultPage() {
           </div>
         </div>
 
-        <div className="composer-wrap">
+        <div className="composer-wrap"><MaterialReviewPanel taskId={[...(activeConversation?.messages || [])].reverse().find((m) => m.taskId)?.taskId || activeConversation?.taskId} running={Boolean(activeRequest.loading)} />
           <div className="composer"><QueuedMessages composer={queuedComposer} />
             <textarea
               value={question}

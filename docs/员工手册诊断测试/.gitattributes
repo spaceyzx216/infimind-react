@@ -1,0 +1,2 @@
+# Preserve the exact uploaded synthetic TXT bytes used by this evaluation.
+材料/R*.txt -text whitespace=cr-at-eol

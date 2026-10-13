@@ -1,3 +1,5 @@
+import MaterialReviewPanel from '../components/MaterialReviewPanel.jsx'
+import { selectConversationHistory } from '../utils/context-budget.js'
 import { useComposerSend } from '../hooks/useComposerSend'
 import QueuedMessages from '../components/QueuedMessages'
 import SideChatEmptyState from '../components/SideChatEmptyState'
@@ -320,18 +322,19 @@ function ContractDraftPage() {
     if (latestTask.status !== 'succeeded') throw new Error(latestTask.errorSummary || TASK_STATUS_LABELS[latestTask.status] || '合同起草未完成。')
   }
 
-  const runLegacyDraft = async ({ conversationId, assistantId, content, history, filesSnapshot, requestMode, run }) => {
+  const runLegacyDraft = async ({ conversationId, assistantId, content, history, currentDraft, filesSnapshot, requestMode, run }) => {
     const body = filesSnapshot.length ? new FormData() : null
     if (body) {
       body.append('message', content)
       body.append('history', JSON.stringify(history))
       body.append('mode', requestMode)
+      if (currentDraft) body.append('currentDraft', JSON.stringify(currentDraft))
       filesSnapshot.forEach((file) => body.append('files', file))
     }
     const response = await authFetch(DRAFT_ENDPOINT, {
       method: 'POST',
       headers: body ? { Accept: 'text/event-stream' } : { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-      body: body || JSON.stringify({ message: content, history, mode: requestMode }),
+      body: body || JSON.stringify({ message: content, history, currentDraft, mode: requestMode }),
       signal: run.controller.signal
     })
     if (!response.ok) {
@@ -379,13 +382,10 @@ function ContractDraftPage() {
     const previousDraft = [...activeConversation.messages].reverse().find((message) => message.type === 'draft' && message.draftText)
     const recentConversation = activeConversation.messages
       .filter((message) => message.type === 'user' || message.type === 'assistant')
-      .slice(-5)
       .map((message) => ({ role: message.type === 'user' ? 'user' : 'assistant', content: message.content || '' }))
       .filter((message) => message.content)
-    // 后续重生成必须看见当前草稿；放在最近对话末尾，让模型将它视为待更新版本。
-    const history = previousDraft
-      ? [...recentConversation, { role: 'assistant', content: `【当前合同草稿，用户可能要求基于此版本调整或重新生成】\n${previousDraft.draftText}` }]
-      : recentConversation
+    // The full draft is mandatory input via currentDraft, separate from history.
+    const history = selectConversationHistory(recentConversation, { question: request, mandatoryText: previousDraft?.draftText || '' }).history
     const currentDraft = previousDraft ? {
       draftText: previousDraft.draftText,
       title: previousDraft.title || activeConversation.title,
@@ -425,7 +425,7 @@ function ContractDraftPage() {
       const shouldUseLegacySse = taskPayload.code === 'draft_sse_required' || taskPayload.code === 'draft_intent_clarification'
       if (shouldUseLegacySse) {
         resolveReady()
-        await runLegacyDraft({ conversationId, assistantId, content, history, filesSnapshot, requestMode, run })
+        await runLegacyDraft({ conversationId, assistantId, content, history, currentDraft, filesSnapshot, requestMode, run })
         return
       }
       if (!taskResponse.ok) throw new Error(taskPayload.error || `起草任务创建失败（${taskResponse.status}）`)
@@ -557,7 +557,7 @@ function ContractDraftPage() {
           {activeRequest.error && <p className="chat-error">{activeRequest.error}</p>}
           {!isSideChat && !activeConversation?.messages?.length && <div className="starter-prompts">{starterPrompts.map((prompt) => <button type="button" key={prompt} onClick={() => setInstruction(t(prompt))}>{t(prompt)}<span>→</span></button>)}</div>}
         </div></div>
-        <div className="composer-wrap"><div className="composer"><QueuedMessages composer={queuedComposer} /><textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); createDraft() } }} placeholder={t("上传参考文件或输入你想起草的合同要求…")} disabled={false} />{files.length > 0 && <div className="pending-files">{files.map((file) => <span key={file.name}><FileText size={14} />{file.name}<button type="button" aria-label={(t("移除 ") + (file.name))} onClick={() => setFiles((items) => items.filter((item) => item !== file))}><X size={13} /></button></span>)}</div>}<div className="composer-bottom"><ToolComposerControls mode={mode} onModeChange={setMode} modeDisabled={isGenerating} onUpload={() => inputRef.current?.click()} uploadLabel={t("上传参考文件")} disabled={false} messages={activeConversation?.messages || []} question={instruction} hasPendingFiles={files.length > 0} /><button type="button" className="voice-send" aria-label={queuedComposer.label || (isGenerating ? t('停止起草任务') : t('发送消息'))} onClick={queuedComposer.send} disabled={Boolean(activeRequest.cancelPending) || (!isGenerating && !instruction.trim() && !files.length)}>{activeRequest.cancelPending ? <Loader2 size={20} className="spinner" /> : isGenerating && !instruction.trim() && !files.length ? <Square size={17} /> : <Send size={19} />}</button></div><input ref={inputRef} hidden type="file" multiple accept={ACCEPTED} onChange={(event) => { uploadFiles([...event.target.files]); event.target.value = '' }} /></div></div>
+        <div className="composer-wrap"><MaterialReviewPanel taskId={[...(activeConversation?.messages || [])].reverse().find((m) => m.taskId)?.taskId || activeConversation?.taskId} running={isGenerating} /><div className="composer"><QueuedMessages composer={queuedComposer} /><textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); createDraft() } }} placeholder={t("上传参考文件或输入你想起草的合同要求…")} disabled={false} />{files.length > 0 && <div className="pending-files">{files.map((file) => <span key={file.name}><FileText size={14} />{file.name}<button type="button" aria-label={(t("移除 ") + (file.name))} onClick={() => setFiles((items) => items.filter((item) => item !== file))}><X size={13} /></button></span>)}</div>}<div className="composer-bottom"><ToolComposerControls mode={mode} onModeChange={setMode} modeDisabled={isGenerating} onUpload={() => inputRef.current?.click()} uploadLabel={t("上传参考文件")} disabled={false} messages={activeConversation?.messages || []} question={instruction} hasPendingFiles={files.length > 0} /><button type="button" className="voice-send" aria-label={queuedComposer.label || (isGenerating ? t('停止起草任务') : t('发送消息'))} onClick={queuedComposer.send} disabled={Boolean(activeRequest.cancelPending) || (!isGenerating && !instruction.trim() && !files.length)}>{activeRequest.cancelPending ? <Loader2 size={20} className="spinner" /> : isGenerating && !instruction.trim() && !files.length ? <Square size={17} /> : <Send size={19} />}</button></div><input ref={inputRef} hidden type="file" multiple accept={ACCEPTED} onChange={(event) => { uploadFiles([...event.target.files]); event.target.value = '' }} /></div></div>
       </section>
 
       {settings.analysisPanel && documentOpen && <section className="document-column"><header className="document-header"><span>{t("合同草稿")}</span><div><button type="button" disabled={!activeDraft?.draftText} onClick={() => navigator.clipboard?.writeText(activeDraft?.draftText || '')}><Copy size={18} />{t("复制")}</button><button type="button" disabled={!activeDraft?.draftText} onClick={downloadDraft}><Download size={18} />{t("下载 Word")}</button><button type="button" className="close-document" aria-label={t("关闭合同草稿")} onClick={() => setDocumentOpen(false)}><X size={21} /></button></div></header><div className="document-scroll"><DraftDocument draftText={activeDraft?.draftText || ''} pendingItems={activeDraft?.pendingItems || []} confirmed={confirmed} onConfirm={() => setConfirmed(true)} />{activeDraft?.draftText && <aside className="draft-document-note"><strong>{t("起草说明")}</strong><p>{t("本草稿由 AI 根据当前输入生成；请在签署前核对主体、授权、金额、期限、税务与公司治理等交易事实，并视需要由专业人士复核。")}</p></aside>}</div></section>}

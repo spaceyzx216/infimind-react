@@ -1,3 +1,7 @@
+import { MAX_MODEL_OUTPUT_TOKENS, CONTEXT_WINDOW_TOKENS, CONTEXT_SAFETY_TOKENS, estimateTokens } from '../../src/utils/context-budget.js'
+import { updateDraftInBlocks } from '../services/draft-block-update.js'
+import { indexedMaterialText } from '../services/material-processing.js'
+import { selectMaterialBlocks, formatMaterialBlocks } from '../services/document-materials.js'
 import { extractText } from '../services/file-parser.js'
 import { chat, getFlashModel, streamChat } from '../services/llm-client.js'
 import { buildContractDraftSystemPrompt, buildContractDraftUserMessage } from '../prompts/contract-draft.js'
@@ -9,9 +13,7 @@ import {
 } from '../prompts/contract-draft-types.js'
 import { TaskCancelledError, isValidAttachment } from './contract-review.js'
 
-export const MAX_DRAFT_REFERENCE_TEXT = 40000
-export const MAX_DRAFT_HISTORY_MESSAGES = 12
-export const MAX_DRAFT_HISTORY_MESSAGE_LENGTH = 6000
+export const MAX_DRAFT_REFERENCE_TEXT = 12_000_000
 
 export const DRAFT_INTENT_CLARIFICATION = '请说明附件是用于参考、更新现有合同，还是据此生成一份完整合同；如需保存新版本，请明确提出“起草/生成/更新全文”等要求。'
 
@@ -49,8 +51,7 @@ export function normalizeDraftHistory(value) {
   if (!Array.isArray(history)) return []
   return history
     .filter((item) => ['user', 'assistant'].includes(item?.role) && typeof item?.content === 'string' && item.content.trim())
-    .slice(-MAX_DRAFT_HISTORY_MESSAGES)
-    .map((item) => ({ role: item.role, content: item.content.trim().slice(0, MAX_DRAFT_HISTORY_MESSAGE_LENGTH) }))
+    .map((item) => ({ role: item.role, content: item.content.trim() }))
 }
 
 export function extractDraftMeta(markdown = '') {
@@ -85,7 +86,7 @@ export function validateDraftMarkdown(markdown = '') {
 
 export function normalizeDraftSnapshot(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const draftText = normalizeText(value.draftText || value.text, 60000)
+  const draftText = String(value.draftText || value.text || '').trim()
   if (!draftText) return null
   const validation = validateDraftMarkdown(draftText)
   return {
@@ -104,6 +105,19 @@ export function normalizeDraftSnapshot(value) {
       : null,
     valid: validation.valid
   }
+}
+
+export function buildDraftChatMessage({ message, currentDraft, referenceMaterials = [], systemPrompt = '' }) {
+  const materials = currentDraft?.draftText
+    ? [...referenceMaterials, { name: '当前合同完整草稿', text: currentDraft.draftText }] : referenceMaterials
+  if (!materials.length) return { userMessage: message, notice: '' }
+  const fullMessage = `本轮问题：${message}\n\n当前草稿与参考材料（事实源）：\n${materials.map((item) => `${item.name}\n${item.text}`).join('\n\n')}`
+  if (estimateTokens(systemPrompt + fullMessage) + MAX_MODEL_OUTPUT_TOKENS + CONTEXT_SAFETY_TOKENS + 64 <= CONTEXT_WINDOW_TOKENS) {
+    return { userMessage: fullMessage, notice: '' }
+  }
+  const selected = selectMaterialBlocks(materials, message, 24000)
+  const notice = '草稿与材料超过本轮可用上下文；本轮依据相关原文块回答，其他条款尚未纳入本次解释。'
+  return { userMessage: `本轮问题：${message}\n${notice}\n不得据此声称核对了完整合同。\n${formatMaterialBlocks(selected.blocks)}`, notice }
 }
 
 export function hasExplicitDraftIntent(message = '') {
@@ -144,7 +158,7 @@ export async function resolveDraftAction({
     const result = await chatFn(DRAFT_ACTION_CLASSIFIER_SYSTEM_PROMPT, `用户本轮消息：${message}`, {
       model,
       temperature: 0,
-      maxTokens: mode === 'fast' ? 128 : 2048,
+      maxTokens: MAX_MODEL_OUTPUT_TOKENS,
       thinking: { type: mode === 'fast' ? 'disabled' : 'enabled' },
       ...(mode === 'fast' ? {} : { reasoningEffort: 'low' }), signal
     })
@@ -243,7 +257,7 @@ export async function classifyContractDraft({
     const result = await chatFn(CONTRACT_TYPE_CLASSIFIER_SYSTEM_PROMPT, buildContractTypeClassifierMessage({ instruction, referenceMaterials }), {
       model,
       temperature: 0,
-      maxTokens: mode === 'fast' ? 512 : 2048,
+      maxTokens: MAX_MODEL_OUTPUT_TOKENS,
       thinking: { type: mode === 'fast' ? 'disabled' : 'enabled' },
       ...(mode === 'fast' ? {} : { reasoningEffort: 'low' }), signal
     })
@@ -356,13 +370,20 @@ const parseReferences = async ({ files, emit, checkpoint, getCheckpoint, updateF
   return referenceMaterials
 }
 
-const collectDraftText = async ({ instruction, referenceMaterials, typeProfile, history, model, operation, fakeLlm, streamFn, ensure, mode, signal }) => {
+const collectDraftText = async ({ instruction, referenceMaterials, typeProfile, history, model, operation, fakeLlm, streamFn, ensure, mode, signal, currentDraft, checkpoint, getCheckpoint, emit }) => {
   if (fakeLlm) return buildFakeDraft({ instruction, operation, typeProfile, referenceMaterials })
+  const materials = currentDraft ? [...referenceMaterials, { name: '当前合同完整草稿（修订事实源）', text: currentDraft }] : referenceMaterials
+  const systemPrompt = buildContractDraftSystemPrompt(typeProfile)
+  const userMessage = buildContractDraftUserMessage({ instruction, referenceMaterials: materials })
+  if (currentDraft && estimateTokens(systemPrompt + userMessage) + MAX_MODEL_OUTPUT_TOKENS + CONTEXT_SAFETY_TOKENS > CONTEXT_WINDOW_TOKENS) {
+    return updateDraftInBlocks({ currentDraft, instruction, referenceMaterials, model, mode, signal, streamFn, ensure, checkpoint, getCheckpoint, emit })
+  }
   let draftText = ''
-  for await (const chunk of streamFn(buildContractDraftSystemPrompt(typeProfile), buildContractDraftUserMessage({ instruction, referenceMaterials }), {
+  let finishReason = null
+  for await (const chunk of streamFn(systemPrompt, userMessage, {
     model,
     temperature: 0.2,
-    maxTokens: 12288,
+    maxTokens: MAX_MODEL_OUTPUT_TOKENS,
     history,
     thinking: { type: mode === 'fast' ? 'disabled' : 'enabled' },
     ...(mode === 'fast' ? {} : { reasoningEffort: 'low' }),
@@ -370,8 +391,10 @@ const collectDraftText = async ({ instruction, referenceMaterials, typeProfile, 
   })) {
     ensure()
     if (chunk?.content) draftText += chunk.content
+    if (chunk?.finishReason) finishReason = chunk.finishReason
   }
   ensure()
+  if (finishReason !== 'stop') throw Object.assign(new Error('新草稿尚未完整返回，原草稿已保留，请继续生成。'), { code: 'draft_output_incomplete', retryable: false })
   return draftText
 }
 
@@ -411,13 +434,18 @@ export async function runContractDraft({
       throw error
     }
   }
-  if (baseDraft?.draftText && !history.some((item) => item.role === 'assistant' && item.content.includes('【当前合同草稿'))) {
-    history.push({ role: 'assistant', content: `【当前合同草稿，用户可能要求基于此版本调整或重新生成】\n${baseDraft.draftText}`.slice(0, MAX_DRAFT_HISTORY_MESSAGE_LENGTH) })
-  }
 
   ensure()
-  const referenceMaterials = await parseReferences({ files, emit, checkpoint, getCheckpoint, updateFileParseStatus, ensure })
+  let referenceMaterials = await parseReferences({ files, emit, checkpoint, getCheckpoint, updateFileParseStatus, ensure })
   ensure()
+
+  if (input.materialIndex?.length) {
+    const selected = selectMaterialBlocks(referenceMaterials, instruction)
+    referenceMaterials = [{ name: '参考材料的原文片段与逐字条件摘录', text: formatMaterialBlocks(selected.blocks) + '\n' + indexedMaterialText(input.materialIndex) + '\n' + (input.materialNotice || '') }]
+    await checkpoint('material-coverage', { ...selected.coverage, indexed: input.materialIndex.map((e) => e.blockId), mode: 'all-conditions-index' })
+  } else if (input.materialNotice && referenceMaterials.length) {
+    referenceMaterials = referenceMaterials.map((material) => ({ ...material, text: material.text + '\n【材料读取与OCR核对提示】\n' + input.materialNotice }))
+  }
 
   const typeCheckpoint = checkpointValue(getCheckpoint, 'contract_type')
   let classification = typeCheckpoint?.classification || null
@@ -449,7 +477,8 @@ export async function runContractDraft({
   if (!validation.valid) {
     await emit('stage.start', { stage: 'generation', label: '正在生成完整合同正文', operation })
     await emit('stage.progress', { stage: 'generation', message: '正在调用合同起草模型；完整结果校验通过后才会保存为正式草稿' })
-    draftText = await collectDraftText({ instruction, referenceMaterials, typeProfile: classification.profile, history, model, operation, fakeLlm, streamFn, ensure, mode, signal })
+    draftText = await collectDraftText({ instruction, referenceMaterials, typeProfile: classification.profile, history, model, operation, fakeLlm, streamFn, ensure, mode, signal,
+      currentDraft: baseDraft?.draftText, checkpoint, getCheckpoint, emit })
     validation = validateDraftMarkdown(draftText)
     if (!validation.valid) {
       const error = new Error(validation.message)
