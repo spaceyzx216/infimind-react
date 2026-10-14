@@ -164,6 +164,31 @@ export function normalizeCaseRecord(raw, sources, previous, { taskId, materialHa
   return { record, issues }
 }
 
+// 纯文本问答（没有任何上传文件）时，模型容易把企业聊天陈述写成“已上传证据”。
+// 直接判失败会让整个案件分析报错，且重试往往仍然照抄；但也不能放任它把聊天陈述
+// 说成已上传材料。这里先降级为“拟补充”，保持结论诚实，再由校验继续检查其它问题。
+export function downgradeUnavailableEvidence(result, record) {
+  const knownSources = new Map(list(record?.sources).map((source) => [source.id, source]))
+  const documents = new Set([...knownSources.values()]
+    .filter((source) => source.kind === 'document' && !list(record.excludedSourceIds).includes(source.id))
+    .map((source) => source.id))
+  const notes = []
+  for (const claim of list(result?.claims)) {
+    if (!claim || typeof claim !== 'object') continue
+    for (const item of list(claim.evidence)) {
+      if (!item || typeof item !== 'object' || item.status !== 'uploaded') continue
+      if (documents.has(item.sourceId)) continue
+      const source = knownSources.get(item.sourceId)
+      // 只降级“来源真实存在、但不是上传文件”的情形（例如企业聊天陈述）。
+      // 编造出来的 sourceId 属于无依据引用，仍交给校验判失败，不能靠降级掩盖。
+      if (!source || source.kind === 'document') continue
+      item.status = 'proposed'
+      notes.push(`${str(item.name) || '未命名证据'}降级为“拟补充”：${source.kind === 'company_statement' ? '企业聊天陈述不是上传文件' : '本轮没有对应的上传文件'}。`)
+    }
+  }
+  return notes
+}
+
 export function validateAnalysisSources(result, record, referenceIds) {
   const issues = []
   const requests = record.requests

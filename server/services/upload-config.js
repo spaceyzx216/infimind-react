@@ -2,8 +2,7 @@
  * 文件上传的共享白名单与限制。
  *
  * 用工咨询与合同审查/起草使用同一套支持格式，避免两处定义漂移。
- * 若新增格式，只需改这里（合同侧 server/routes/contract-rewrite.js 的白名单
- * 保留为历史副本，后续可迁移到本模块）。
+ * 前后端及兼容路由共用本模块。
  */
 
 /** 浏览器与解析器均支持的 MIME 类型 */
@@ -53,5 +52,16 @@ const EXTENSION_PATTERN = /\.(pdf|doc|docx|rtf|odt|xls|xlsx|ods|ppt|pptx|odp|txt
  */
 export function isAcceptableFile(file) {
   if (!file) return false
-  return ACCEPTED_TYPES.includes(file.mimetype) || EXTENSION_PATTERN.test(file.originalname || '')
+  const name = file.originalname || ''
+  return /\.[^./\\]+$/.test(name) ? EXTENSION_PATTERN.test(name) : ACCEPTED_TYPES.includes(file.mimetype)
+}
+
+const MIME_EXTENSION = Object.fromEntries(ACCEPTED_TYPES.map((mime, index) => [mime, [
+  '.pdf', '.doc', '.docx', '.rtf', '.odt', '.xls', '.xlsx', '.ods', '.ppt', '.pptx', '.odp',
+  '.txt', '.md', '.csv', '.tsv', '.html', '.json', '.xml', '.png', '.jpg', '.webp', '.bmp', '.tiff', '.gif'
+][index]]))
+
+export function extensionForFile(file) {
+  const match = String(file.originalname || '').match(/\.[^./\\]+$/)
+  return match ? match[0].toLowerCase() : MIME_EXTENSION[file.mimetype] || ''
 }

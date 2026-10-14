@@ -1,42 +1,29 @@
+import { isReviewProgressVisible } from '../utils/review-presentation.js'
 import { useComposerSend } from '../hooks/useComposerSend'
 import QueuedMessages from '../components/QueuedMessages'
 import SideChatEmptyState from '../components/SideChatEmptyState'
+import SidebarSearch from '../components/SidebarSearch.jsx'
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import {
-  Ban,
-  Brain,
-  Copy,
-  Download,
-  ChevronLeft,
-  ChevronRight,
-  CircleAlert,
-  FileText,
-  History,
-  Loader2,
-  MessageCircle,
-  PenLine,
-  Plus,
-  RotateCw,
-  Scale,
-  Send,
-  ShieldCheck,
-  Square,
-  Trash2,
-  Zap,
-  X
-} from 'lucide-react'
+import { Ban, Brain, Copy, Download, ChevronLeft, ChevronRight, CircleAlert, FileText, Loader2, MessageCircle, PenLine, Plus, RotateCw, Scale, Send, ShieldCheck, Square, Trash2, Zap, X } from 'lucide-react'
 import ContractWorkbenchLayout from '../components/ContractWorkbenchLayout'
 import { useWorkspaceText, useWorkspaceLayout } from '../components/WorkspaceContext'
 import { useConversationActions } from '../hooks/useConversationActions'
 import { authFetch } from '../utils/auth-api.js'
 import ToolComposerControls from '../components/ToolComposerControls'
+import MarkdownBody from '../components/MarkdownBody.jsx'
 import { formatRelativeTime } from '../utils/relative-time.js'
 import { reduceLaborProgress } from '../utils/labor-progress.js'
 import { throttleWithTrailing, MARKDOWN_THROTTLE_MS } from '../utils/stream-buffer.js'
 import { ReviewRoundsPanel, RevisionDocument, downloadRevisionWord } from './ContractRewritePage.jsx'
+import {
+  EMPTY_ANNOTATION_EDITS,
+  buildRevisionPlainText,
+  clearAnnotationEdit,
+  countAppliedAnnotationEdits,
+  normalizeAnnotationEditStore,
+  setAnnotationEdit
+} from '../utils/revision-annotations.js'
 import './ContractRewritePage.css'
 import {
   ACCEPTED_EXTENSIONS,
@@ -49,6 +36,21 @@ import './LaborContractAnalysisPage.css'
 
 const PRODUCT_ID = 'labor-contract-analysis'
 const LAST_TASK_KEY = 'fafee-labor-contract-analysis-last-task-v1'
+// 批注意见的人工编辑按报告任务 id 存在本浏览器：服务端任务结果只读，编辑不写回任务库，
+// 刷新、切换历史会话后仍然生效，复制与下载都取这份最终确认的版本。
+const ANNOTATION_EDITS_KEY = 'fafee-labor-contract-analysis-annotation-edits-v1'
+const readAnnotationEditsStore = () => {
+  try {
+    return normalizeAnnotationEditStore(JSON.parse(window.localStorage.getItem(ANNOTATION_EDITS_KEY) || '{}'))
+  } catch {
+    return {}
+  }
+}
+const writeAnnotationEditsStore = (value) => {
+  try {
+    window.localStorage.setItem(ANNOTATION_EDITS_KEY, JSON.stringify(value))
+  } catch { /* 浏览器禁用或存储空间不足时不阻断页面 */ }
+}
 const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled'])
 const INFO_LABELS = [
   ['employer', '用人单位'], ['employee', '劳动者'], ['contractType', '合同类型'], ['term', '合同期限'],
@@ -98,6 +100,38 @@ function normalizeLaborReportMarkdown(value) {
   return String(value || '')
     .replace(/（模型判断，仅供参考）/g, '')
     .replace(/\*\*([^*\n]+?)[：:]\*\*/g, '**$1**：')
+}
+
+/**
+ * 把第 2/3 轮的新增发现渲染成正文小节。
+ *
+ * 为什么放在前端：首轮报告只含首轮发现（后端既有契约，`test-review-first-round` 有断言），
+ * 而二/三轮的新增问题一直只出现在“三轮审查进度”面板里，正文永远停在首轮。
+ * 轮次数据 `reviewRounds` 已经在消息里（面板在用），这里直接排成正文，不新增事件、
+ * 不改后端契约；流式期间每轮结束都会刷新，用户能边看边积累。
+ */
+/**
+ * 问题核对阶段被合并掉的重复项：后端逐条给出理由（result.qualityNotes）。
+ * 这些条目会从“逐条批注”里消失，必须在这里说明去向，否则用户只看到问题变少。
+ */
+function buildQualityNotesSection(notes = []) {
+  const items = (Array.isArray(notes) ? notes : []).filter((note) => typeof note === 'string' && note.trim())
+  if (!items.length) return ''
+  return ['## 问题核对说明', ...items.map((note) => `- ${note}`)].join('\n')
+}
+
+function buildRoundSupplements(rounds = []) {
+  return (Array.isArray(rounds) ? rounds : [])
+    .filter((round) => Number(round?.round) > 1 && Array.isArray(round.newFindings) && round.newFindings.length)
+    .map((round) => [
+      `## 第 ${round.round} 轮补充发现（${round.newFindings.length} 条）`,
+      ...round.newFindings.map((finding) => [
+        `### 【${finding?.level || '待判断'}】${finding?.title || '未命名问题'}`,
+        ...(finding?.location ? [`- 位置：${finding.location}`] : []),
+        ...(finding?.risk ? [`- 风险：${finding.risk}`] : [])
+      ].join('\n'))
+    ].join('\n\n'))
+    .join('\n\n')
 }
 
 async function readError(response, fallback) {
@@ -202,8 +236,16 @@ function renderSourceLineText(text, ranges) {
   return nodes.length ? nodes : '\u00a0'
 }
 
-function AnalysisResult({ result, streaming = false, sourceTaskId = '', documentMode = false, onSourceDocuments }) {
+function AnalysisResult({ result, streaming = false, sourceTaskId = '', documentMode = false, onSourceDocuments, annotationEdits = null, onAnnotationChange = null, onAnnotationReset = null }) {
   const t = useWorkspaceText()
+  const edits = annotationEdits && typeof annotationEdits === 'object' ? annotationEdits : EMPTY_ANNOTATION_EDITS
+  const editedCount = countAppliedAnnotationEdits(Array.isArray(result?.revisions) ? result.revisions : [], edits)
+  // 批注卡统一走同一份编辑入口：三条渲染路径（历史报告 / 文档模式 / 正文批注）行为一致。
+  const annotationProps = {
+    annotationEdits: edits,
+    onAnnotationChange: typeof onAnnotationChange === 'function' ? onAnnotationChange : null,
+    onAnnotationReset: typeof onAnnotationReset === 'function' ? onAnnotationReset : null
+  }
   const isDispatch = result?.analysisType === 'labor_dispatch_agreement'
   const info = isDispatch ? (result?.agreementInfo || {}) : (result?.contractInfo || {})
   const infoLabels = isDispatch ? DISPATCH_INFO_LABELS : INFO_LABELS
@@ -219,8 +261,10 @@ function AnalysisResult({ result, streaming = false, sourceTaskId = '', document
   const [selectedSourceFileId, setSelectedSourceFileId] = useState('')
   const sourceLineRefs = useRef(new Map())
   const sourceLoadAttemptedRef = useRef('')
-  const completed = result?.analysisStatus === 'completed'
-    || (result?.productId === PRODUCT_ID && result?.kind !== 'followup' && !streaming && result?.analysisStatus !== 'streaming')
+  // 恢复稿或覆盖核对提前结束的结果（analysisStatus='partial' / reviewComplete=false）不能被当作“已完成检查”。
+  const partialResult = result?.analysisStatus === 'partial' || result?.reviewComplete === false
+  const completed = !partialResult && (result?.analysisStatus === 'completed'
+    || (result?.productId === PRODUCT_ID && result?.kind !== 'followup' && !streaming && result?.analysisStatus !== 'streaming'))
   const hasContractInfo = Object.values(info).some(Boolean)
   const activeFinding = findings.find((item) => item.id === activeFindingId) || findings[0] || null
   const activeSourceMatches = useMemo(() => ['found', 'ambiguous'].includes(activeFinding?.location?.status)
@@ -288,11 +332,10 @@ function AnalysisResult({ result, streaming = false, sourceTaskId = '', document
     return (
       <div className="lca-result lca-contract-review-report lca-document-mode">
         <section className="lca-review-annotated-document">
-          <div className="lca-review-document-heading"><div><h2>{t("合同原文批注")}</h2><p>{t("只读原文；橙色标记对应风险位置，展开标记可查看处理建议。")}</p></div><span>{revisions.length ? ((revisions.length) + t(" 处批注")) : t("旧报告未保存批注")}</span></div>
           {sourceLoading && <p className="lca-muted-copy">{t("正在读取合同原文…")}</p>}
           {sourceError && <p className="lca-source-message" role="status">{sourceError}</p>}
           {!sourceLoading && sourceDocuments.length === 0 && !sourceError && <p className="lca-muted-copy">{t("正在读取合同原文…")}</p>}
-          {sourceDocuments.length > 0 && <RevisionDocument contractText={contractText} revisions={revisions} preserveFileMarkers />}
+          {sourceDocuments.length > 0 && <RevisionDocument contractText={contractText} revisions={revisions} preserveFileMarkers {...annotationProps} />}
           {sourceDocuments.length === 0 && <button type="button" className="lca-load-source-button" onClick={() => { sourceLoadAttemptedRef.current = ''; void loadSource() }}>{sourceError ? t("重试读取原文") : t("读取合同原文")}</button>}
           {!revisions.length && sourceDocuments.length > 0 && <p className="lca-muted-copy">{t("这份历史报告没有保存原文批注；重新分析后可生成带定位标记的批注稿。")}</p>}
         </section>
@@ -306,16 +349,19 @@ function AnalysisResult({ result, streaming = false, sourceTaskId = '', document
     if (documentMode) return (
       <div className="lca-result lca-contract-review-report lca-document-mode">
         <section className="lca-review-annotated-document">
-          <div className="lca-review-document-heading"><div><h2>{t("合同原文批注")}</h2><p>{t("只读原文；橙色标记对应风险位置，展开标记可查看处理建议。")}</p></div><span>{result.revisions.length ? ((result.revisions.length) + t(" 处批注")) : t("暂无可定位批注")}</span></div>
           {sourceLoading && <p className="lca-muted-copy">{t("正在读取合同原文…")}</p>}
           {sourceError && <p className="lca-source-message" role="status">{sourceError}</p>}
           {!sourceLoading && sourceDocuments.length === 0 && !sourceError && <p className="lca-muted-copy">{t("正在读取合同原文…")}</p>}
-          {sourceDocuments.length > 0 && <RevisionDocument contractText={contractText} revisions={result.revisions} preserveFileMarkers />}
+          {sourceDocuments.length > 0 && <RevisionDocument contractText={contractText} revisions={result.revisions} preserveFileMarkers {...annotationProps} />}
           {sourceDocuments.length === 0 && <button type="button" className="lca-load-source-button" onClick={() => { sourceLoadAttemptedRef.current = ''; void loadSource() }}>{sourceError ? t("重试读取原文") : t("读取合同原文")}</button>}
         </section>
         <aside className="revision-summary">
+          {partialResult && <p className="lca-muted-copy" role="status">{t("已完成内容已保存，请继续核对剩余条款。")}</p>}
           <p>{result.revisions.length ? (t("已定位 ") + (result.revisions.length) + t(" 处原文批注。")) : t("本次没有生成可定位的原文批注。")}{score !== null ? (t(" 参考分 ") + (score) + "/100。") : ''}</p>
           <p className="revision-summary-tip">{t("分析结论和风险依据在对话正文中；展开编号批注可查看完整处理建议。")}</p>
+          <p className="revision-summary-tip">{editedCount
+            ? <>{t("已人工修改 ")}{editedCount}{t(" 条批注；复制和下载导出的都是修改后确认的意见。")}</>
+            : t("每条批注都可以点“编辑”直接改写成你的最终意见；复制和下载导出的都是最终确认的版本。")}</p>
         </aside>
         {result.warnings?.length > 0 && <details className="lca-review-warnings"><summary>{t("复核提醒（")}{result.warnings.length}）</summary><ul>{result.warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul></details>}
       </div>
@@ -331,11 +377,11 @@ function AnalysisResult({ result, streaming = false, sourceTaskId = '', document
         </div>
         {result.conclusion && <p className="lca-review-conclusion">{result.conclusion}</p>}
         <section className="lca-review-annotated-document">
-          <div className="lca-review-document-heading"><div><h2>{t("合同原文批注")}</h2><p>{t("只读原文；高亮表示已定位的风险片段，批注可展开查看处理建议。")}</p></div><span>{t("风险等级由模型辅助判断")}</span></div>
+          <div className="lca-review-document-heading"><div><h2>{t("合同原文批注")}</h2><p>{t("只读原文；高亮表示已定位的风险片段，批注可展开查看处理建议。")}</p></div><span>{editedCount ? `${t("已人工修改 ")}${editedCount}${t(" 条批注")}` : t("风险等级由模型辅助判断")}</span></div>
           {sourceLoading && <p className="lca-muted-copy">{t("正在读取合同原文…")}</p>}
           {sourceError && <p className="lca-source-message" role="status">{sourceError}</p>}
           {!sourceLoading && !sourceError && sourceDocuments.length === 0 && <p className="lca-muted-copy">{t("点击下方按钮读取原文批注稿。")}</p>}
-          {sourceDocuments.length > 0 && <RevisionDocument contractText={contractText} revisions={result.revisions} preserveFileMarkers />}
+          {sourceDocuments.length > 0 && <RevisionDocument contractText={contractText} revisions={result.revisions} preserveFileMarkers {...annotationProps} />}
           {sourceDocuments.length === 0 && <button type="button" className="lca-load-source-button" onClick={() => { sourceLoadAttemptedRef.current = ''; void loadSource() }}>{t("读取合同原文")}</button>}
         </section>
         {result.warnings?.length > 0 && <details className="lca-review-warnings"><summary>{t("复核提醒（")}{result.warnings.length}）</summary><ul>{result.warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul></details>}
@@ -360,7 +406,7 @@ function AnalysisResult({ result, streaming = false, sourceTaskId = '', document
 
       <section className="lca-conclusion" aria-labelledby="lca-conclusion-title">
         <div className="lca-conclusion-header">
-          <div><span>{t("审查结论")}</span><h2 id="lca-conclusion-title">{scopeConfirmationRequired ? t("当前材料还不能进入劳动合同分析") : completed ? (isDispatch ? t("派遣协议专项检查已完成") : t("合同重点事项已检查")) : (t("正在分析") + (isDispatch ? t("劳务派遣协议") : t("劳动合同")))}</h2></div>
+          <div><span>{t("审查结论")}</span><h2 id="lca-conclusion-title">{scopeConfirmationRequired ? t("当前材料还不能进入劳动合同分析") : completed ? (isDispatch ? t("派遣协议专项检查已完成") : t("合同重点事项已检查")) : partialResult ? (isDispatch ? t("派遣协议检查已保存已完成部分") : t("合同检查已保存已完成部分")) : (t("正在分析") + (isDispatch ? t("劳务派遣协议") : t("劳动合同")))}</h2></div>
           {!scopeConfirmationRequired && !isDispatch && completed && Number.isFinite(result?.score?.value) && <div className="lca-score-value" aria-label={(t("合同参考分 ") + (result.score.value) + t(" 分"))}><span>{t("参考分")}</span><strong>{result.score.value}<small>/ 100</small></strong></div>}
         </div>
         <p>{scopeConfirmationRequired
@@ -470,7 +516,7 @@ function AnalysisResult({ result, streaming = false, sourceTaskId = '', document
           {!scopeConfirmationRequired && (missingItems.length > 0 || result?.contextQuestions?.length > 0 || result?.lawCandidates?.length > 0 || result?.warnings?.length > 0 || completed) && <section className="lca-final-check" aria-labelledby="lca-final-check-title">
             <span>{t("最后核对")}</span>
             <h2 id="lca-final-check-title">{isDispatch ? t("协作和签署前，还需要确认什么") : t("提交或签署前，还需要确认什么")}</h2>
-            <p className="lca-final-check-status">{completed ? t("合同条款已完成检查") : t("检查进行中")}{missingItems.length ? (" · " + (missingItems.length) + t(" 项信息待补充")) : ''}{authorityCount ? (" · " + (authorityCount) + t(" 条已收录法规记录")) : ''}</p>
+            <p className="lca-final-check-status">{completed ? t("合同条款已完成检查") : partialResult ? t("已完成内容已保存，请继续核对剩余条款。") : t("检查进行中")}{missingItems.length ? (" · " + (missingItems.length) + t(" 项信息待补充")) : ''}{authorityCount ? (" · " + (authorityCount) + t(" 条已收录法规记录")) : ''}</p>
             {missingItems.length > 0 && <ul className="lca-final-list">{missingItems.map((item, index) => <li key={`${item.topic}-${item.item}-${index}`}><strong>{item.topic}</strong><span>{item.item}</span>{item.reason && <p>{item.reason}</p>}</li>)}</ul>}
             {result?.contextQuestions?.length > 0 && <div className="lca-final-subsection"><strong>{t("需要补充的适用前提")}</strong><ul>{result.contextQuestions.map((question, index) => <li key={`${question}-${index}`}>{question}</li>)}</ul></div>}
             {result?.lawCandidates?.length > 0 && <div className="lca-final-subsection lca-unverified-laws"><strong>{t("待用户核验的法规线索")}</strong><p>{t("这些线索不是已确认的法律依据，不能单独用于判断合同或协议违法。请核对官方原文、地区和施行时间。")}</p><ul>{result.lawCandidates.map((item, index) => <li key={`${item.title}-${index}`}><b>{item.title}</b>{item.reason && `：${item.reason}`}</li>)}</ul></div>}
@@ -539,14 +585,39 @@ export default function LaborContractAnalysisPage() {
   const [deletingThreadId, setDeletingThreadId] = useState('')
   const [deleteError, setDeleteError] = useState('')
   const historySearchRef = useRef(null)
-  const searchShortcutLabel = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ K' : 'Ctrl K'
   const [partialReports, setPartialReports] = useState({})
   const [partialAnswers, setPartialAnswers] = useState({})
   const [reportOpen, setReportOpen] = useState(false)
   const [openReportTaskId, setOpenReportTaskId] = useState('')
+  // 批注人工编辑表：{ 报告任务 id: { 批注 id: 覆盖字段 } }，本浏览器持久化。
+  const [annotationEdits, setAnnotationEdits] = useState(readAnnotationEditsStore)
+  const [reportCopiedAt, setReportCopiedAt] = useState(0)
   const conversationRef = useRef(null)
   const previousTaskRef = useRef(null)
   const selectionRequestRef = useRef(0)
+
+  const taskAnnotationEdits = useCallback((taskKey) => (taskKey && annotationEdits[taskKey]) || EMPTY_ANNOTATION_EDITS, [annotationEdits])
+  const updateTaskAnnotationEdits = useCallback((taskKey, updater) => {
+    if (!taskKey) return
+    setAnnotationEdits((current) => {
+      const next = updater((current[taskKey] || EMPTY_ANNOTATION_EDITS))
+      if (next === (current[taskKey] || EMPTY_ANNOTATION_EDITS)) return current
+      const store = { ...current }
+      if (Object.keys(next).length) store[taskKey] = next
+      else delete store[taskKey]
+      return store
+    })
+  }, [])
+  const handleAnnotationChange = useCallback((taskKey) => (key, patch, target) => updateTaskAnnotationEdits(taskKey, (edits) => setAnnotationEdit(edits, key, patch, target)), [updateTaskAnnotationEdits])
+  const handleAnnotationReset = useCallback((taskKey) => (key) => updateTaskAnnotationEdits(taskKey, (edits) => clearAnnotationEdit(edits, key)), [updateTaskAnnotationEdits])
+
+  useEffect(() => {
+    if (!reportCopiedAt) return undefined
+    const timer = window.setTimeout(() => setReportCopiedAt(0), 2200)
+    return () => window.clearTimeout(timer)
+  }, [reportCopiedAt])
+
+  useEffect(() => { writeAnnotationEditsStore(annotationEdits) }, [annotationEdits])
 
   const currentThreadId = task?.threadId || task?.id || ''
   const visibleTasks = threadTasks.length
@@ -560,26 +631,34 @@ export default function LaborContractAnalysisPage() {
     if (conversation) conversation.scrollTop = conversation.scrollHeight
   }, [currentThreadId, task?.id])
 
+  // 一轮分析从“运行中”进入终态且有可展示的原文/批注时自动展开批注稿（对齐商业合同审查的自动展开）。
+  // 仍要求状态发生迁移：选择历史会话、或用户手动关闭后，都不会被重复自动展开。
+  const autoOpenTaskId = task?.id || ''
+  const autoOpenTaskStatus = task?.status || ''
+  const autoOpenTaskAction = task?.action || ''
+  const autoOpenRevisionCount = task?.result?.revisions?.length || 0
+  const autoOpenSourceCount = task?.result?.sourceDocuments?.length || 0
   useEffect(() => {
     const previous = previousTaskRef.current
-    previousTaskRef.current = task ? { id: task.id, status: task.status } : null
-    if (previous && task && previous.id === task.id && !TERMINAL_STATUSES.has(previous.status)
-      && task.status === 'succeeded' && task.action !== 'followup' && task.result?.analysisStatus === 'completed') {
-      setOpenReportTaskId(task.id)
+    previousTaskRef.current = autoOpenTaskId ? { id: autoOpenTaskId, status: autoOpenTaskStatus } : null
+    if (previous && autoOpenTaskId && previous.id === autoOpenTaskId && !TERMINAL_STATUSES.has(previous.status)
+      && TERMINAL_STATUSES.has(autoOpenTaskStatus) && autoOpenTaskAction !== 'followup'
+      && (autoOpenRevisionCount > 0 || autoOpenSourceCount > 0)) {
+      setOpenReportTaskId(autoOpenTaskId)
       setReportOpen(true)
     }
-  }, [task?.id, task?.status, task?.result?.analysisStatus])
+  }, [autoOpenTaskId, autoOpenTaskStatus, autoOpenTaskAction, autoOpenRevisionCount, autoOpenSourceCount])
 
   useEffect(() => {
     const handleSearchShortcut = (event) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      if (settings.shortcuts.search !== 'disabled' && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === settings.shortcuts.search) {
         event.preventDefault()
         historySearchRef.current?.focus()
       }
     }
     window.addEventListener('keydown', handleSearchShortcut)
     return () => window.removeEventListener('keydown', handleSearchShortcut)
-  }, [])
+  }, [settings.shortcuts.search])
 
   useEffect(() => {
     if (!pendingDeleteThread) return undefined
@@ -726,7 +805,16 @@ export default function LaborContractAnalysisPage() {
       })
     }
     const reviewStream = throttleWithTrailing((data) => patchProgress('review.delta', data), MARKDOWN_THROTTLE_MS)
-    const overviewStream = throttleWithTrailing((data) => patchProgress('analysis.delta', data), MARKDOWN_THROTTLE_MS)
+    // ⚠️ analysis.delta 是**追加型**增量，不能直接把每个分片交给节流：
+    // throttleWithTrailing 只保留最后一次待执行参数，同一窗口内的中间分片会被丢掉
+    // （正文会缺字）。这里自己累积分片、按窗口整批提交，保持顺序与完整性。
+    let bufferedOverview = ''
+    const overviewStream = throttleWithTrailing(() => {
+      if (!bufferedOverview) return
+      const content = bufferedOverview
+      bufferedOverview = ''
+      patchProgress('analysis.delta', { content })
+    }, MARKDOWN_THROTTLE_MS)
     const receive = (event, data) => {
       const eventSequence = Number(data?._seq) || 0
       if (eventSequence && eventSequence <= sequence) return
@@ -739,7 +827,18 @@ export default function LaborContractAnalysisPage() {
       }
       finishRestore()
       if (event === 'review.delta' && data?.replace) reviewStream(data)
-      else if (event === 'analysis.delta' && data?.replace) overviewStream(data)
+      // 结构分析是不带 replace 的逐块增量：先累加，再由节流整批追加提交。
+      else if (event === 'analysis.delta') {
+        if (data?.replace) {
+          // 整篇替换（重试 attempt>1）：丢弃尚未提交的累积分片，直接以整篇为准。
+          overviewStream.cancel()
+          bufferedOverview = ''
+          patchProgress('analysis.delta', data)
+        } else if (typeof data?.content === 'string' && data.content) {
+          bufferedOverview += data.content
+          overviewStream()
+        }
+      }
       else {
         reviewStream.flush()
         overviewStream.flush()
@@ -1136,6 +1235,11 @@ export default function LaborContractAnalysisPage() {
       setHistory((items) => items.filter((item) => (item.threadId || item.id) !== threadId))
       setPartialReports((items) => Object.fromEntries(Object.entries(items).filter(([taskId]) => !deletedTaskIds.has(taskId))))
       setPartialAnswers((items) => Object.fromEntries(Object.entries(items).filter(([taskId]) => !deletedTaskIds.has(taskId))))
+      // 会话删除后同步清掉该批注编辑表项，避免本地存储留下无人再读的孤儿意见。
+      setAnnotationEdits((items) => {
+        const remaining = Object.fromEntries(Object.entries(items).filter(([taskKey]) => !deletedTaskIds.has(taskKey)))
+        return Object.keys(remaining).length === Object.keys(items).length ? items : remaining
+      })
       setPendingDeleteThread(null)
       if (deletedTaskIds.has(window.localStorage.getItem(lastTaskStorageKey) || '') || currentThreadId === threadId) {
         if (!isSideChat) window.localStorage.removeItem(lastTaskStorageKey)
@@ -1158,9 +1262,9 @@ export default function LaborContractAnalysisPage() {
 
   const sidebar = (
     <>
-        <label className="sidebar-search"><History size={17} /><input ref={historySearchRef} value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder={t("搜索历史对话")} /><kbd>{searchShortcutLabel}</kbd></label>
+        <SidebarSearch inputRef={historySearchRef} value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder={t("搜索历史分析")} />
         <div className="sidebar-brand"><span className="brand-orb"><img src="/logo.png" alt="" /></span><strong>{t("法飞飞")}</strong></div>
-        <button className="sidebar-action" type="button" onClick={beginNew}><PenLine size={19} />{t("新建分析")}</button>
+        <button className="sidebar-action" type="button" onClick={beginNew}><PenLine size={20} />{t("新对话")}</button>
         <p className="history-label">{t("历史对话")}</p>
         <nav className="history-list lca-history-list" aria-label={t("劳动合同分析历史记录")}>
           {loadingHistory && <p className="lca-history-empty">{t("正在读取记录…")}</p>}
@@ -1169,7 +1273,7 @@ export default function LaborContractAnalysisPage() {
             <div className="lca-history-row" key={item.id}>
               <button type="button" {...getHistoryMenuProps(item)} className={`${(item.threadId || item.id) === currentThreadId ? 'selected' : ''}${!TERMINAL_STATUSES.has(item.status) ? ' thread-running' : ''} lca-history-item`} title={`${item.title || t("劳动合同分析")} · ${TASK_STATUS[item.status] || item.status} · ${formatDate(item.createdAt)}`} onClick={() => void selectTask(item.id)}>
                 <span className="history-thread-icon" aria-hidden="true">{!TERMINAL_STATUSES.has(item.status) ? <Loader2 size={16} className="spinner" /> : <MessageCircle size={16} />}</span>
-                <span className="lca-history-copy"><span className="lca-history-title">{renderTitle(item)}</span><small>{formatRelativeTime(new Date(item.createdAt).getTime())}</small></span>
+                <span className="history-row-copy lca-history-copy"><span className="history-row-title lca-history-title">{renderTitle(item)}</span><small className="history-row-time">{formatRelativeTime(new Date(item.createdAt).getTime())}</small></span>
               </button>
               <button type="button" className="lca-history-delete" aria-label={(t("删除会话：") + (item.title || t("劳动合同分析")))} title={!TERMINAL_STATUSES.has(item.status) ? t("任务处理中，暂不能删除") : t("删除整段会话")} disabled={!TERMINAL_STATUSES.has(item.status)} onClick={(event) => requestDeleteThread(event, item)}><Trash2 size={15} /></button>
             </div>
@@ -1209,36 +1313,59 @@ export default function LaborContractAnalysisPage() {
             <option value="">{t("请选择您代表的一方")}</option><option value="dispatch_unit">{t("派遣单位")}</option><option value="using_unit">{t("用工单位")}</option>
           </select></label>}
         </div>}
-        {files.length > 0 && <div className="lca-file-chips" aria-label={t("待上传文件")}>{files.map((file, index) => {
-          return <span key={`${file.name}-${file.size}-${file.lastModified}`} title={file.name}>
-            <FileText size={14} /><span>{file.name}</span><small>{formatSize(file.size)}</small>
-            <button type="button" aria-label={(t("移除 ") + (file.name))} onClick={() => removeSelectedFile(index)}><X size={13} /></button>
-          </span>
-        })}</div>}
         <QueuedMessages composer={queuedComposer} />
-        <textarea className="lca-chat-input" value={focus} maxLength={16000} onChange={(event) => setFocus(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); handleComposerSubmit(event) } }} placeholder={isRunning ? t("输入新问题后发送可打断当前生成；留空点击停止…") : files.length || !task ? t("上传劳动合同或派遣材料，可选填分析侧重点…") : t("围绕这份合同或报告继续提问…")} aria-label={files.length || !task ? t("分析侧重点，选填") : t("追问内容")} />
+        <textarea className="lca-chat-input" value={focus} maxLength={16000} onChange={(event) => setFocus(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); handleComposerSubmit(event) } }} placeholder={t("上传劳动合同或派遣材料，可选填分析侧重点…")} aria-label={files.length || !task ? t("分析侧重点，选填") : t("追问内容")} />
+        {files.length > 0 && <div className="pending-files" aria-label={t("待上传文件")}>{files.map((file, index) => <span key={`${file.name}-${file.size}-${file.lastModified}`} title={file.name}>
+          <FileText size={14} /><span>{file.name}</span><small>{formatSize(file.size)}</small>
+          <button type="button" aria-label={t("移除 ") + file.name} onClick={() => removeSelectedFile(index)}><X size={13} /></button>
+        </span>)}</div>}
+        {classifying && <p className="assistant-status lca-classification-status" role="status"><Loader2 size={15} className="spinner" />{t("正在读取合同原文…")}</p>}
         {error && <p className="lca-inline-error" role="alert">{error}</p>}
-        <div className="composer-bottom"><ToolComposerControls disabled={submitting} modeDisabled={isRunning || submitting} onUpload={() => fileInputRef.current?.click()} mode={mode} onModeChange={setMode} question={focus} hasPendingFiles={files.length > 0} messages={visibleTasks.flatMap((item) => [{ content: item.prompt }, { content: item.result?.answer || item.result?.reviewReport, result: item.result }])}>{dragging && <span>{t("松开以上传")}</span>}</ToolComposerControls><button className="voice-send" type="submit" disabled={submitting || classifying || (!isRunning && files.length > 0 && (classificationResults.length !== files.length || classificationResults.some((item) => BLOCKED_PARSE_STATUSES.has(item.parseStatus)))) || (!isRunning && !files.length && (!task || !focus.trim() || !latestReportTask))} aria-label={queuedComposer.label || t(composerActionLabel)} title={composerActionLabel}>{submitting ? <Loader2 size={17} className="lca-spin" /> : isRunning && !hasComposerInput ? <Square size={16} /> : <Send size={18} />}</button></div>
+        <div className="composer-bottom"><ToolComposerControls disabled={submitting} modeDisabled={isRunning || submitting} onUpload={() => fileInputRef.current?.click()} mode={mode} onModeChange={setMode} question={focus} hasPendingFiles={files.length > 0} messages={visibleTasks.flatMap((item) => [{ content: item.prompt }, { content: item.result?.answer || item.result?.reviewReport, result: item.result }])}>{dragging && <span>{t("松开以上传")}</span>}</ToolComposerControls><button className="voice-send" type="submit" disabled={submitting || classifying || (!isRunning && files.length > 0 && (classificationResults.length !== files.length || classificationResults.some((item) => BLOCKED_PARSE_STATUSES.has(item.parseStatus)))) || (!isRunning && !files.length && (!task || !focus.trim() || !latestReportTask))} aria-label={queuedComposer.label || t(composerActionLabel)} title={composerActionLabel}>{submitting || classifying ? <Loader2 size={17} className="spinner" /> : isRunning && !hasComposerInput ? <Square size={17} /> : <Send size={19} />}</button></div>
       </form>
-      <p className="labor-disclaimer"><Scale size={13} />{t("本回答为辅助分析，不构成正式法律意见；重大金额、群体性争议、工伤认定与行政处罚事项请由专业人士复核。")}</p>
     </div>
   )
 
   const paneSourceId = reportViewData?.sourceTaskId || reportViewTask?.id || ''
   const paneOriginalText = (reportViewData?.sourceDocuments || reportSources[paneSourceId] || [])
     .map((document) => `=== 文件：${document.fileName || '上传文件'} ===\n${document.text || ''}`).join('\n\n')
+  const paneRevisions = reportViewData?.revisions || []
+  // 编辑按「产出批注的报告任务」分桶，不能按 paneSourceId（那是原文所属任务，重跑分析会复用）：
+  // 劳动合同的批注 ID 是位置序号（finding-N-local-M），按原文任务分桶会把上一版的人工意见
+  // 套到重新分析后位置相同的另一条批注上。
+  const paneAnnotationKey = reportViewTask?.id || ''
+  const paneAnnotationEdits = taskAnnotationEdits(paneAnnotationKey)
+  const paneEditedCount = countAppliedAnnotationEdits(paneRevisions, paneAnnotationEdits)
+  const copyAnnotatedReport = () => {
+    const content = buildRevisionPlainText({
+      title: reportViewTask.title || (reportViewTask.analysisType === 'labor_dispatch_agreement' ? '劳务派遣协议审查批注稿' : '劳动合同审查批注稿'),
+      text: paneOriginalText,
+      revisions: paneRevisions,
+      annotationEdits: paneAnnotationEdits,
+      preserveFileMarkers: true
+    })
+    navigator.clipboard.writeText(content).then(() => setReportCopiedAt(Date.now())).catch(() => setError('复制失败，请手动选择批注稿内容复制。'))
+  }
   const reportPane = settings.analysisPanel && reportOpen && reportViewTask && (
-    <section className="document-column lca-report-pane">
-      <header className="document-header"><span>{reportViewTask.analysisType === 'labor_dispatch_agreement' ? t("劳务派遣协议审查批注稿") : t("劳动合同审查批注稿")}</span><div><button type="button" title={t("复制原文")} disabled={!paneOriginalText} onClick={() => { navigator.clipboard.writeText(paneOriginalText).catch(() => setError('复制失败，请手动选择原文复制。')) }}><Copy size={18} />{t("复制")}</button><button type="button" title={t("下载 Word 批注稿")} disabled={!paneOriginalText || reportIsStreaming} onClick={() => downloadRevisionWord({ name: reportViewTask.title, text: paneOriginalText, documentRevisions: reportViewData?.revisions || [], preserveFileMarkers: true })}><Download size={18} />{t("下载")}</button><small>{reportIsStreaming ? reportViewTask.stageSummary || t("正在生成") : TASK_STATUS[reportViewTask.status] || ''}</small><button className="close-document" type="button" aria-label={t("关闭审查批注稿")} onClick={() => setReportOpen(false)}><X size={21} /></button></div></header>
+    <section className="document-column lca-report-pane" aria-label={reportViewTask.analysisType === 'labor_dispatch_agreement' ? t("劳务派遣协议审查批注稿") : t("劳动合同审查批注稿")}>
+      <header className="document-header"><span>{reportViewTask.analysisType === 'labor_dispatch_agreement' ? t("劳务派遣协议审查批注稿") : t("劳动合同审查批注稿")}</span><div>
+        {paneEditedCount > 0 && <span className="annotation-edit-status"><button type="button" onClick={() => updateTaskAnnotationEdits(paneAnnotationKey, () => EMPTY_ANNOTATION_EDITS)}>{t("已人工修改 ")}{paneEditedCount}{t(" 条 · 全部恢复")}</button></span>}
+        <button type="button" title={t("复制批注稿（含最终确认意见）")} disabled={!paneOriginalText} onClick={copyAnnotatedReport}><Copy size={18} />{reportCopiedAt ? t("已复制") : t("复制")}</button>
+        <button type="button" title={t("下载 Word 批注稿（含最终确认意见）")} disabled={!paneOriginalText || reportIsStreaming} onClick={() => downloadRevisionWord({ name: reportViewTask.title, text: paneOriginalText, documentRevisions: paneRevisions, annotationEdits: paneAnnotationEdits, preserveFileMarkers: true })}><Download size={18} />{t("下载")}</button>
+        <button className="close-document" type="button" aria-label={t("关闭文档")} onClick={() => setReportOpen(false)}><X size={21} /></button></div></header>
       <div className="document-scroll lca-report-scroll">
-        <div className="lca-report-heading"><span>{reportViewTask.analysisType === 'labor_dispatch_agreement' ? t("劳务派遣协议分析") : t("劳动合同分析")}</span><h1>{reportViewTask.title || (reportViewTask.analysisType === 'labor_dispatch_agreement' ? t("劳务派遣协议审查批注稿") : t("劳动合同审查批注稿"))}</h1><p>{formatDate(reportViewTask.createdAt)}{reportViewTask.prompt ? (t(" · 侧重点：") + (reportViewTask.prompt)) : ''}</p></div>
+        {reportViewTask.status === 'failed' && reportViewData && <div className="lca-failed-card"><CircleAlert size={18} /><div><strong>{t("本次分析未完成")}</strong><p>{reportViewTask.errorSummary || t("任务处理失败。")}</p></div></div>}
+        {reportIsStreaming && <p className="assistant-status lca-document-status" role="status"><Loader2 size={15} className="spinner" />{reportViewTask.stageSummary || t("正在生成")}</p>}
         {reportViewData
             ? <AnalysisResult
               onSourceDocuments={rememberReportSource}
               key={`${reportViewTask.id}:${reportViewData?.sourceTaskId || reportViewTask.result?.sourceTaskId || reportViewTask.id}`}
               result={reportViewData}
               streaming={reportIsStreaming}
-              sourceTaskId={reportViewData?.sourceTaskId || reportViewTask.result?.sourceTaskId || reportViewTask.id}
+              sourceTaskId={paneSourceId}
+              annotationEdits={paneAnnotationEdits}
+              onAnnotationChange={handleAnnotationChange(paneAnnotationKey)}
+              onAnnotationReset={handleAnnotationReset(paneAnnotationKey)}
               documentMode
             />
             : reportIsStreaming
@@ -1254,14 +1381,14 @@ export default function LaborContractAnalysisPage() {
 
   return (
     <ContractWorkbenchLayout
-      className={`labor-contract-analysis lca-workspace${settings.analysisPanel && reportOpen ? ' document-expanded' : ''}`}
+      className={`contract-review labor-contract-analysis lca-workspace${settings.analysisPanel && reportOpen ? ' document-expanded' : ''}`}
       sidebarClassName="lca-rail"
       sidebarCollapsed={sidebarCollapsed}
       hideSidebar={settings.analysisPanel && reportOpen}
       sidebar={sidebar}
       headerLeft={headerLeft}
       title={task ? titleOf(task) : t("劳动合同分析")}
-      subtitle={t("从合同原文出发 · 风险提示需结合实际复核")}
+      subtitle={t("AI 生成内容仅供参考，请结合实际情况判断")}
       composer={composer}
       documentPane={reportPane}
       conversationRef={conversationRef}
@@ -1269,63 +1396,80 @@ export default function LaborContractAnalysisPage() {
       <div className="conversation-inner lca-content">
         {isSideChat && !task && <SideChatEmptyState />}
         {!isSideChat && !task && (
-          <div className="assistant-turn lca-intro">
+          <div className="assistant-turn welcome-turn"><div>
             <p>{analysisType === 'labor_dispatch_agreement'
               ? t("你好，我是法飞飞劳动合同分析助手。上传劳务派遣协议后，可补充派遣劳动合同和附件，并选择派遣单位或用工单位视角。我会检查派遣专项事项、定位原文并列出待核对依据。")
               : t("你好，我是法飞飞劳动合同分析助手。上传劳动合同后，我会结合合同原文整理需要留意的条款、原文批注和处理建议。可选填关注点，完成后也可以继续问我这份合同的问题。")}</p>
-            <div className="starter-prompts">
+          </div></div>
+        )}
+        {!isSideChat && !task && <div className="starter-prompts">
               <button type="button" onClick={() => setFocus('请重点看试用期和工作地点。')}>{t("重点看试用期和工作地点")}<span>→</span></button>
               <button type="button" onClick={() => setFocus('请重点看薪酬、工时和社保。')}>{t("重点看薪酬、工时和社保")}<span>→</span></button>
-            </div>
-          </div>
-        )}
+            </div>}
         {visibleTasks.map((item) => {
-          const itemResult = item.status === 'succeeded' && item.result?.productId === PRODUCT_ID ? item.result : null
+          const persistedResult = item.result?.productId === PRODUCT_ID ? item.result : null
+          // 失败但已从检查点恢复出可读结果时也要保留批注稿入口（对齐商业审查的 hasReviewDocument 口径）。
+          // answer：追问失败后刷新时，恢复结果里只有已生成的部分回答（没有批注/报告），
+          // 也必须让它渲染出来，否则用户刚看到的回答会消失。
+          const itemHasDocument = Boolean(persistedResult
+            && (persistedResult.revisions?.length || persistedResult.sourceDocuments?.length || persistedResult.reviewReport || persistedResult.answer))
+          const itemResult = item.status === 'succeeded' || itemHasDocument ? persistedResult : null
           const followup = itemResult?.kind === 'followup'
           const partialAnswer = partialAnswers[item.id] || ''
           const reportPartial = partialReports[item.id]
           const analysisRunning = !TERMINAL_STATUSES.has(item.status) && item.action !== 'followup'
           const analysisOverview = itemResult?.analysisOverview || reportPartial?.analysisOverview || ''
           const reviewReport = itemResult?.reviewReport || reportPartial?.reviewReport || ''
-          const overviewSection = analysisOverview
-            ? analysisOverview.startsWith('## 审查摘要') ? analysisOverview : `## 审查摘要\n${analysisOverview}`
-            : ''
-          const assistantReportText = [
-            overviewSection,
-            reviewReport
-          ].filter(Boolean).join('\n\n---\n\n')
-          const reviewProgressVisible = itemResult?.reviewRounds?.length > 0 || reportPartial?.reviewRounds?.length > 0
-            || analysisRunning && (reportPartial?.activeReviewRound
-              || item.id === task?.id && task.currentStage === 'review' && !task.lastEventSeq)
+          // 概览区现在就是结构分析报告（合同基础识别/条款结构图/要素完整性核查/文本一致性与待确认事项），
+          // 与商业合同审查一致，不再额外套“审查摘要”标题。
+          const overviewSection = analysisOverview || ''
+          // 用 || 而不是 ??：失败恢复稿在没有 review 检查点时会给出空串，
+          // 空串必须回退到流式草稿/概览，否则正文整段空白。
+          const firstRoundReport = itemResult?.firstRoundReport || reportPartial?.firstRoundReport
+          // 终态正文用「终稿报告」而不是 firstRoundReport：后端持久化的 firstRoundReport 是
+          // **进行中变体**（`# 重点风险与处理建议`），一直取它会让终稿的 `# 逐条批注`
+          // 与「完整性清单」永远进不了正文，与商业合同审查的终态形态不一致。
+          const reportFinished = TERMINAL_STATUSES.has(item.status) && Boolean(reviewReport)
+          const reportBase = reportFinished
+            ? [overviewSection, reviewReport].filter(Boolean).join('\n\n---\n\n')
+            : typeof firstRoundReport === 'string' ? firstRoundReport : [overviewSection, reviewReport].filter(Boolean).join('\n\n---\n\n')
+          // 第 2/3 轮的新增发现此前只出现在进度面板，正文只有首轮：这里按轮次补进正文。
+          const roundSupplements = buildRoundSupplements(itemResult?.reviewRounds || reportPartial?.reviewRounds)
+          // 终稿报告自带的「完整性清单」已含质量说明，避免同一内容重复出现两遍。
+          const qualitySection = reportFinished ? '' : buildQualityNotesSection(itemResult?.qualityNotes)
+          const assistantReportText = [reportBase, roundSupplements, qualitySection].filter(Boolean).join('\n\n---\n\n')
+          const reviewProgressVisible = isReviewProgressVisible(itemResult || reportPartial)
           return (
             <section className="lca-chat-turn" key={item.id}>
-              <div className="lca-user-turn"><span>{item.prompt || (followup ? t("追问") : item.analysisType === 'labor_dispatch_agreement' ? t("请分析我上传的劳务派遣协议。") : t("请分析我上传的劳动合同。"))}</span>{item.files?.length > 0 && <small>{item.files.map((file) => file.originalName).join('、')}</small>}</div>
-              <div className="assistant-turn lca-assistant-turn">
-                <div className="lca-turn-meta"><strong>{t("法飞飞 ·")}{followup ? t("追问") : item.analysisType === 'labor_dispatch_agreement' ? t("劳务派遣协议分析") : t("劳动合同分析")}</strong><span>{formatDate(item.createdAt)}</span></div>
-                {!TERMINAL_STATUSES.has(item.status) && item.action === 'followup' && !partialAnswer && <div className="lca-progress-card" aria-live="polite"><Loader2 size={18} className="lca-spin" /><div><strong>{item.stageSummary || t("正在整理追问回复…")}</strong></div></div>}
-                {item.status === 'failed' && <div className="lca-failed-card"><CircleAlert size={18} /><div><strong>{t("本次")}{item.files?.length ? t("分析") : t("回复")}{t("未完成")}</strong><p>{/ECONNRESET|流连接中断|LLM_STREAM|terminated/i.test(item.errorSummary || '') ? t("模型连接中断，自动重试仍未完成。下方保留已收到的草稿和完成轮次，尚不是最终报告。") : item.errorSummary || t("任务处理失败，请稍后重试。")}</p></div></div>}
-                {item.status === 'failed' && item.action !== 'followup' && <button type="button" className="lca-load-source-button" disabled={submitting || isRunning} onClick={() => void submitTask(null, item)}><RotateCw size={14} />{t("重新分析")}</button>}
-                {item.status === 'cancelled' && <div className="lca-cancelled-card"><Ban size={18} /><span>{t("任务已停止，未生成完整结果。")}</span></div>}
-                {(followup || (item.action === 'followup' && partialAnswer)) && <div className="lca-followup-answer"><ReactMarkdown remarkPlugins={[remarkGfm]}>{itemResult?.answer || partialAnswer}</ReactMarkdown>{itemResult && !itemResult.sourceAvailable && <small>{t("本轮仅依据旧报告解释，未重新读取合同原文。")}</small>}</div>}
-                {analysisRunning && <div className="lca-progress-card" aria-live="polite"><Loader2 size={18} className="lca-spin" /><div><strong>{item.stageSummary || t("正在整理合同概况…")}</strong></div></div>}
-                {assistantReportText && <div className="assistant-content lca-review-chat-output"><ReactMarkdown remarkPlugins={[remarkGfm]}>{normalizeLaborReportMarkdown(assistantReportText)}</ReactMarkdown></div>}
+              <div className="user-turn"><p>{item.prompt || (followup ? t("追问") : item.analysisType === 'labor_dispatch_agreement' ? t("请分析我上传的劳务派遣协议。") : t("请分析我上传的劳动合同。"))}</p>{item.files?.map((file) => <div className="attached-file" key={file.id || `${item.id}-${file.originalName}`}><FileText size={18} /><span>{file.originalName}</span>{Number.isFinite(file.size) && <small>{formatSize(file.size)}</small>}</div>)}</div>
+              <div className="assistant-turn result-turn"><div>
+                {!TERMINAL_STATUSES.has(item.status) && item.action === 'followup' && !partialAnswer && <p className="assistant-status" role="status"><Loader2 size={15} className="spinner" />{item.stageSummary || t("正在整理追问回复…")}</p>}
+                {item.status === 'failed' && <div className="chat-error" role="alert"><strong>{t("本次")}{item.files?.length ? t("分析") : t("回复")}{t("未完成")}</strong><p>{/ECONNRESET|流连接中断|LLM_STREAM|terminated/i.test(item.errorSummary || '') ? t("模型连接中断，自动重试仍未完成。下方保留已收到的草稿和完成轮次，尚不是最终报告。") : item.errorSummary || t("任务处理失败，请稍后重试。")}</p></div>}
+                {item.status === 'failed' && item.action !== 'followup' && <button type="button" className="tool-text" disabled={submitting || isRunning} onClick={() => void submitTask(null, item)}><RotateCw size={14} />{t("重新分析")}</button>}
+                {item.status === 'cancelled' && <small className="message-interrupted">{t("任务已停止，未生成完整结果。")}</small>}
+                {(followup || (item.action === 'followup' && partialAnswer)) && <div className="assistant-content lca-followup-answer">{(itemResult?.analysisStatus === 'partial' || item.status === 'failed') && itemResult?.answer && <p className="lca-muted-copy" role="status">{t("本次追问未完成，以下是已生成的部分回答，尚未核对完成。")}</p>}<MarkdownBody content={itemResult?.answer || partialAnswer} />{itemResult && !itemResult.sourceAvailable && <small>{t("本轮仅依据旧报告解释，未重新读取合同原文。")}</small>}</div>}
+                {analysisRunning && <p className="assistant-status" role="status"><Loader2 size={15} className="spinner" />{item.stageSummary || t("正在整理合同概况…")}</p>}
+                {assistantReportText && <div className="assistant-content lca-review-chat-output"><MarkdownBody content={normalizeLaborReportMarkdown(assistantReportText)} /></div>}
                 {reviewProgressVisible && <ReviewRoundsPanel
                   rounds={itemResult?.reviewRounds || reportPartial?.reviewRounds || []}
                   thinking={analysisRunning && item.id === task?.id && task.currentStage === 'review'}
                   activeRound={reportPartial?.activeReviewRound}
+                  firstRoundInReport={false}
                   finished={TERMINAL_STATUSES.has(item.status) || reportPartial?.reviewFinished}
                   interrupted={item.status === 'failed'}
                   stoppedEarly={itemResult?.reviewStoppedEarly || reportPartial?.reviewStoppedEarly}
                 />}
-                {!itemResult && reportPartial?.revisions?.length > 0 && <button type="button" className="open-document-card lca-open-report-card" onClick={() => { setOpenReportTaskId(item.id); setReportOpen(true) }}>
-                  <FileText size={25} /><span><strong>{t("查看正在生成的原文批注稿")}</strong><small>{reportPartial.revisions.length}{t("组批注已补入完整原文")}</small></span>
+                {/* 批注稿入口只在整轮分析结束后出现：三轮审查与逐批补入批注期间不提前露出半成品。 */}
+                {!itemResult && TERMINAL_STATUSES.has(item.status) && (reportPartial?.revisions?.length > 0 || reportPartial?.reviewReport) && <button type="button" className="open-document-card lca-open-report-card" onClick={() => { setOpenReportTaskId(item.id); setReportOpen(true) }}>
+                  <FileText size={25} /><span><strong>{t("查看原文批注稿")}</strong><small>{reportPartial?.revisions?.length ? `${reportPartial.revisions.length}${t("组批注已补入完整原文")}` : t("点击展开合同原文")}</small></span>
                 </button>}
                 {itemResult && itemResult.kind !== 'followup' && <button type="button" className="open-document-card lca-open-report-card" onClick={() => { setOpenReportTaskId(item.id); setReportOpen(true) }}>
                   <FileText size={25} />
-                  <span><strong>{item.analysisType === 'labor_dispatch_agreement' ? t("劳务派遣协议审查批注稿") : t("劳动合同审查批注稿")}</strong><small>{Number.isFinite(itemResult?.score?.value) ? (t("参考分 ") + (itemResult.score.value) + "/100 · ") : ''}{itemResult?.revisions?.length || 0}{t("处原文批注 · 点击查看")}</small></span>
+                  <span><strong>{item.analysisType === 'labor_dispatch_agreement' ? t("劳务派遣协议审查批注稿") : t("劳动合同审查批注稿")}{item.status === 'failed' || itemResult.analysisStatus === 'partial' ? t("（未完成）") : ''}</strong><small>{Number.isFinite(itemResult?.score?.value) ? (t("参考分 ") + (itemResult.score.value) + "/100 · ") : ''}{itemResult?.revisions?.length || 0}{t(" 个修订标记 · ")}{t("点击展开文档")}</small></span>
                 </button>}
+                {itemResult && itemResult.kind !== 'followup' && itemResult.analysisStatus === 'completed' && <details className="lca-analysis-reminder"><summary>{t("复核提醒")}</summary><p>{t("本回答为辅助分析，不构成正式法律意见；重大金额、群体性争议、工伤认定与行政处罚事项请由专业人士复核。")}</p></details>}
                 {itemResult && itemResult.kind !== 'followup' && itemResult.analysisStatus === 'scope-confirmation-required' && <p className="lca-muted-copy">{t("材料范围尚待确认，未执行风险分析。")}</p>}
-              </div>
+              </div></div>
             </section>
           )
         })}

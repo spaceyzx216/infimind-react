@@ -1,5 +1,7 @@
+import { MAX_MODEL_OUTPUT_TOKENS } from '../../src/utils/context-budget.js'
 import { Router } from 'express'
 import multer from 'multer'
+import { commercialPhaseOptions } from '../services/commercial-completion.js'
 import { extractText } from '../services/file-parser.js'
 import { getKnowledgeBaseStatus, listTemplates, searchEvidence, DEFAULT_EVIDENCE_LIMIT } from '../services/knowledge-base.js'
 import { buildReviewPlan, withTypeNoticeInResult, withTypeNoticeInReport } from '../services/review-plan.js'
@@ -14,7 +16,7 @@ import { rewriteContract } from '../agents/contract-rewriter.js'
 import { chat, streamChat, getFlashModel, getProModel, getUserBalance } from '../services/llm-client.js'
 import { buildContractDraftSystemPrompt, buildContractDraftUserMessage } from '../prompts/contract-draft.js'
 import { CONTRACT_TYPE_CLASSIFIER_SYSTEM_PROMPT, buildContractTypeClassifierMessage, guessContractType, parseContractTypeClassification } from '../prompts/contract-draft-types.js'
-import { DRAFT_INTENT_CLARIFICATION, buildFakeChatReply, buildFakeDraft, extractDraftMeta, resolveDraftIntent } from '../workflows/contract-draft.js'
+import { DRAFT_INTENT_CLARIFICATION, buildFakeChatReply, buildFakeDraft, buildDraftChatMessage, normalizeDraftSnapshot, extractDraftMeta, resolveDraftIntent } from '../workflows/contract-draft.js'
 
 const router = Router()
 
@@ -24,7 +26,7 @@ const upload = multer({
   storage: multer.memoryStorage(),
   // 浏览器 FormData 以 UTF-8 写入中文 filename；Busboy 默认 Latin-1 会造成文件名乱码。
   defParamCharset: 'utf8',
-  limits: { fileSize: 80 * 1024 * 1024 } // 80MB
+  limits: { fileSize: MAX_FILE_SIZE, files: MAX_FILES, fieldSize: 12 * 1024 * 1024 } // 80MB
 })
 
 // 两个阶段共享同一份合同原文，避免因不同截断长度造成审查、确认和改写结果错位。
@@ -41,33 +43,7 @@ const dedupeKey = (item) => {
   return `${title}::${quote}`
 }
 
-const ACCEPTED_TYPES = [
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/rtf',
-  'application/vnd.oasis.opendocument.text',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.oasis.opendocument.spreadsheet',
-  'application/vnd.ms-powerpoint',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'application/vnd.oasis.opendocument.presentation',
-  'text/plain',
-  'text/markdown',
-  'text/csv',
-  'text/tab-separated-values',
-  'text/html',
-  'application/json',
-  'application/xml',
-  'image/png',
-  'image/jpeg',
-  'image/webp',
-  'image/bmp',
-  'image/tiff',
-  'image/gif'
-]
-
+import { isAcceptableFile, MAX_FILES, MAX_FILE_SIZE } from '../services/upload-config.js'
 // 用量只通过本地服务端读取，避免将密钥发送到浏览器。
 router.get('/account/balance', async (req, res) => {
   try {
@@ -98,8 +74,8 @@ router.get('/knowledge-base/status', (req, res) => {
 })
 
 const MODELS = {
-  fast: () => ({ model: getFlashModel(), thinking: { type: 'disabled' }, maxTokens: 2048 }),
-  thinking: () => ({ model: getProModel(), thinking: { type: 'enabled' }, reasoningEffort: 'high', maxTokens: 4096 })
+  fast: () => ({ model: getFlashModel(), thinking: { type: 'disabled' }, maxTokens: MAX_MODEL_OUTPUT_TOKENS }),
+  thinking: () => ({ model: getProModel(), thinking: { type: 'enabled' }, reasoningEffort: 'high', maxTokens: MAX_MODEL_OUTPUT_TOKENS })
 }
 
 const resolveModel = (mode) => (MODELS[mode] || MODELS.thinking)()
@@ -122,7 +98,7 @@ const classifyContractDraft = async ({ instruction, referenceMaterials, model, m
     const result = await chat(CONTRACT_TYPE_CLASSIFIER_SYSTEM_PROMPT, buildContractTypeClassifierMessage({ instruction, referenceMaterials }), {
       model,
       temperature: 0,
-      maxTokens: mode === 'fast' ? 512 : 2048,
+      maxTokens: MAX_MODEL_OUTPUT_TOKENS,
       thinking: { type: mode === 'fast' ? 'disabled' : 'enabled' },
       ...(mode === 'fast' ? {} : { reasoningEffort: 'low' })
     })
@@ -151,6 +127,10 @@ router.post('/contract-draft', upload.array('files', 6), async (req, res) => {
     history = []
   }
   if (!Array.isArray(history)) history = []
+  let currentDraft
+  try {
+    currentDraft = normalizeDraftSnapshot(typeof req.body?.currentDraft === 'string' ? JSON.parse(req.body.currentDraft) : req.body?.currentDraft)
+  } catch { return res.status(400).json({ error: '当前草稿快照格式无效，请重试。' }) }
   const attachments = req.files || []
   if (!message && attachments.length) return res.status(422).json({ error: DRAFT_INTENT_CLARIFICATION, code: 'draft_intent_clarification', requiresClarification: true })
   if (!message) return res.status(400).json({ error: '请描述需要起草的合同类型、交易背景和关键要求' })
@@ -158,7 +138,7 @@ router.post('/contract-draft', upload.array('files', 6), async (req, res) => {
   if (attachments.length > 6) return res.status(400).json({ error: '一次最多上传 6 个参考文件' })
 
   for (const file of attachments) {
-    const isValid = ACCEPTED_TYPES.includes(file.mimetype) || /\.(pdf|doc|docx|rtf|odt|xls|xlsx|ods|ppt|pptx|odp|txt|md|markdown|csv|tsv|json|xml|html|htm|png|jpg|jpeg|webp|bmp|tif|tiff|gif)$/i.test(file.originalname || '')
+    const isValid = isAcceptableFile(file)
     if (!isValid) return res.status(400).json({ error: `${file.originalname} 文件类型暂不支持` })
   }
 
@@ -184,7 +164,7 @@ router.post('/contract-draft', upload.array('files', 6), async (req, res) => {
     if (referenceLength > MAX_DRAFT_REFERENCE_TEXT) {
       throw new Error(`参考材料正文超过 ${MAX_DRAFT_REFERENCE_TEXT} 字符，请减少附件或拆分后重试`)
     }
-    const hasExistingDraft = history.some((item) => item?.role === 'assistant' && String(item?.content || '').includes('【当前合同草稿'))
+    const hasExistingDraft = Boolean(currentDraft?.draftText) || history.some((item) => item?.role === 'assistant' && String(item?.content || '').includes('【当前合同草稿'))
     const action = await resolveDraftAction({ message, hasExistingDraft, attachments, model, operation, mode })
     if (action === 'clarify') {
       writeSSE('chat.start', { model: isFakeLlm() ? 'fake' : model, label: '需要补充本轮起草用途…' })
@@ -198,10 +178,12 @@ router.post('/contract-draft', upload.array('files', 6), async (req, res) => {
       if (isFakeLlm()) {
         writeSSE('chat.delta', { content: buildFakeChatReply(message) })
       } else {
-        for await (const chunk of streamChat(DRAFT_CHAT_SYSTEM_PROMPT, message, {
+        const context = buildDraftChatMessage({ message, currentDraft, referenceMaterials, systemPrompt: DRAFT_CHAT_SYSTEM_PROMPT })
+        if (context.notice) writeSSE('chat.delta', { content: context.notice + '\n\n' })
+        for await (const chunk of streamChat(DRAFT_CHAT_SYSTEM_PROMPT, context.userMessage, {
           model,
           temperature: 0.3,
-          maxTokens: 2048,
+          maxTokens: MAX_MODEL_OUTPUT_TOKENS,
           history,
           thinking: { type: mode === 'fast' ? 'disabled' : 'enabled' },
           ...(mode === 'fast' ? {} : { reasoningEffort: 'low' }),
@@ -215,27 +197,31 @@ router.post('/contract-draft', upload.array('files', 6), async (req, res) => {
       return
     }
     writeSSE('draft.progress', { label: '正在识别合同类型并加载专项条款框架…' })
-    const classification = await classifyContractDraft({ instruction: message, referenceMaterials, model, mode })
+    const draftReferences = currentDraft?.draftText ? [...referenceMaterials, { name: '当前合同完整草稿', text: currentDraft.draftText }] : referenceMaterials
+    const classification = await classifyContractDraft({ instruction: message, referenceMaterials: draftReferences, model, mode })
     const typeProfile = classification.profile
     writeSSE('draft.type', { typeId: typeProfile.id, label: `已识别为：${typeProfile.label}${typeProfile.risk === 'high' ? '（需专项复核）' : ''}`, risk: typeProfile.risk, confidence: classification.confidence })
     writeSSE('draft.start', { model, label: attachments.length ? `正在依据${typeProfile.label}专项框架结合参考文件起草…` : `正在依据${typeProfile.label}专项框架起草…`, attachments: referenceMaterials.map((item) => item.name) })
     if (isFakeLlm()) {
-      draftText = buildFakeDraft({ instruction: message, operation: hasExistingDraft ? 'regenerate' : 'create', typeProfile, referenceMaterials })
+      draftText = buildFakeDraft({ instruction: message, operation: hasExistingDraft ? 'regenerate' : 'create', typeProfile, referenceMaterials: draftReferences })
       writeSSE('draft.delta', { content: draftText })
     } else {
-      for await (const chunk of streamChat(buildContractDraftSystemPrompt(typeProfile), buildContractDraftUserMessage({ instruction: message, referenceMaterials }), {
+      let finishReason = null
+      for await (const chunk of streamChat(buildContractDraftSystemPrompt(typeProfile), buildContractDraftUserMessage({ instruction: message, referenceMaterials: draftReferences }), {
         model,
         temperature: 0.2,
-        maxTokens: 12288,
+        maxTokens: MAX_MODEL_OUTPUT_TOKENS,
         history,
         thinking: { type: mode === 'fast' ? 'disabled' : 'enabled' },
         ...(mode === 'fast' ? {} : { reasoningEffort: 'low' }),
         requestTimeoutMs: mode === 'fast' ? 120000 : 240000
       })) {
+        if (chunk.finishReason) finishReason = chunk.finishReason
         if (!chunk.content) continue
         draftText += chunk.content
         writeSSE('draft.delta', { content: chunk.content })
       }
+      if (finishReason !== 'stop') throw new Error('新草稿尚未完整返回，原草稿已保留，请继续生成。')
     }
     if (!draftText.trim()) throw new Error('模型未返回合同草稿')
     writeSSE('draft.complete', { ...extractDraftMeta(draftText), draftText, model, contractType: { id: typeProfile.id, label: typeProfile.label, risk: typeProfile.risk } })
@@ -292,7 +278,7 @@ router.post('/contract-finalize', async (req, res) => {
         onlyAccepted: true
       }, (chunk) => {
         writeSSE('rewrite.delta', { content: chunk })
-      }, modelProfile.model)
+      }, modelProfile.model, { mode, commercialMode: mode, emit: writeSSE })
     } catch (error) {
       console.error('[contract-finalize] Agent 3 error:', error.message)
       writeSSE('error', { message: `合同改写失败: ${error.message}`, stage: 'rewrite' })
@@ -377,8 +363,7 @@ router.post('/contract-rewrite', upload.array('files', 6), async (req, res) => {
 
     // 验证文件类型
     for (const file of attachments) {
-      const isValid = ACCEPTED_TYPES.includes(file.mimetype) ||
-        /\.(pdf|doc|docx|rtf|odt|xls|xlsx|ods|ppt|pptx|odp|txt|md|markdown|csv|tsv|json|xml|html|htm|png|jpg|jpeg|webp|bmp|tif|tiff|gif)$/i.test(file.originalname || '')
+      const isValid = isAcceptableFile(file)
       if (!isValid) {
         return res.status(400).json({ error: `${file.originalname} 文件类型暂不支持` })
       }
@@ -452,7 +437,7 @@ router.post('/contract-rewrite', upload.array('files', 6), async (req, res) => {
     try {
       analysisReport = await analyzeContract(parsedText, (chunk) => {
         writeSSE('analysis.delta', { content: chunk })
-      }, modelProfile.model)
+      }, modelProfile.model, { mode, commercialMode: mode, emit: writeSSE })
     } catch (error) {
       console.error('[contract-rewrite] Agent 1 error:', error.message)
       writeSSE('error', { message: `合同分析失败: ${error.message}`, stage: 'analysis' })
@@ -549,7 +534,7 @@ router.post('/contract-rewrite', upload.array('files', 6), async (req, res) => {
           userInstruction: message,
           round,
           previousFindings: accumulatedSummary
-        }, modelProfile.model)
+        }, modelProfile.model, { mode, commercialMode: mode, emit: writeSSE })
       } catch (error) {
         console.error(`[contract-rewrite] Agent 2 round ${round} error:`, error.message)
         writeSSE('error', { message: `第 ${round} 轮合同审查失败: ${error.message}`, stage: 'review' })
@@ -565,9 +550,9 @@ router.post('/contract-rewrite', upload.array('files', 6), async (req, res) => {
         roundPayload = extractReviewPayload(roundOutput)
       } catch (error) {
         console.warn(`[contract-rewrite] Agent 2 round ${round} payload parse failed:`, error.message)
-        // 本轮解析失败：仍推送一个结束信号，便于前端进度连贯
-        writeSSE('review.round', { round, total: REVIEW_ROUNDS, phase: 'end', newFindings: [], newCount: 0, accumulated: combinedFindings.length, message: `第 ${round} 轮审查结果解析异常，已跳过` })
-        continue
+        writeSSE('error', { message: `第 ${round} 轮结果尚未核对完成，不能据此认定无风险。`, stage: 'review' })
+        writeSSE('done', {})
+        return res.end()
       }
       const roundFindings = Array.isArray(roundPayload.findings) ? roundPayload.findings : []
       const newFindingsThisRound = []
@@ -646,7 +631,7 @@ router.post('/contract-rewrite', upload.array('files', 6), async (req, res) => {
           evidence,
           reviewPlan,
           userInstruction: `${message || '无'}\n\n【系统复核】前三轮未生成可确认的风险批注。请重新逐条审查合同，必须输出完整 JSON；只要存在风险或需完善事项，就必须给出条款位置、尽量逐字的 quote、风险和建议。不要输出行号，定位由程序完成。`
-        }, modelProfile.model)
+        }, modelProfile.model, { mode, commercialMode: mode, emit: writeSSE })
         const recoveryResult = buildReviewResult({ contractText: reviewContractText, modelOutput: recoveryOutput })
         if (recoveryResult.stats.confirmed > 0 || recoveryResult.stats.generated > reviewResult.stats.generated) {
           reviewResult = recoveryResult
@@ -654,6 +639,9 @@ router.post('/contract-rewrite', upload.array('files', 6), async (req, res) => {
         }
       } catch (error) {
         console.warn('[contract-rewrite] Review recovery failed:', error.message)
+        writeSSE('error', { message: '风险复核尚未完成，不能据此认定合同没有风险。', stage: 'review' })
+        writeSSE('done', {})
+        return res.end()
       }
     }
 
@@ -685,7 +673,7 @@ router.post('/contract-rewrite', upload.array('files', 6), async (req, res) => {
     if (reviewResult.findings.length > 1) {
       writeSSE('stage.start', { stage: 'consolidation', label: '正在汇总重复及关联问题' })
       try {
-        consolidationOutput = await consolidateContractFindings(reviewResult.findings, modelProfile.model)
+        consolidationOutput = await consolidateContractFindings(reviewResult.findings, modelProfile.model, commercialPhaseOptions(mode, 'consolidation'))
       } catch (error) {
         console.warn('[contract-rewrite] Consolidation Agent failed, using deterministic grouping:', error.message)
         writeSSE('stage.progress', { stage: 'consolidation', message: '智能归并暂时不可用，正在按原文位置进行确定性归并' })
@@ -745,7 +733,7 @@ router.post('/contract-rewrite', upload.array('files', 6), async (req, res) => {
         }, (chunk) => {
           // 改写阶段输出的是 JSON，无法逐字展示；保留回调接口用于未来扩展（如进度心跳）。
           void chunk
-        }, modelProfile.model)
+        }, modelProfile.model, { mode, commercialMode: mode, emit: writeSSE })
       } catch (error) {
         console.error('[contract-rewrite] Agent 3 error:', error.message)
         writeSSE('error', { message: `合同改写失败: ${error.message}`, stage: 'rewrite' })
@@ -778,7 +766,7 @@ router.post('/contract-rewrite', upload.array('files', 6), async (req, res) => {
             contractText: reviewContractText,
             analysisReport: reviewAnalysis,
             findings: batch
-          }, () => {}, modelProfile.model)
+          }, () => {}, modelProfile.model, { mode, commercialMode: mode, emit: writeSSE })
         } catch (error) {
           console.warn(`[contract-rewrite] Rewrite batch ${batchIndex} failed:`, error.message)
           break

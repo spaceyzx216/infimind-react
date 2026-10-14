@@ -2,8 +2,9 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { buildReviewResult } from '../services/annotation-locator.js'
+import { reduceLaborProgress } from '../../src/utils/labor-progress.js'
 import { locateLaborContractQuote, createLaborContractAnalysisWorkflow } from '../workflows/labor-contract-analysis.js'
-import { LABOR_CONTRACT_ANALYSIS_TOPICS } from '../prompts/labor-contract-analysis.js'
+import { LABOR_CONTRACT_ANALYSIS_TOPICS, LABOR_CONTRACT_COMPLETENESS_ELEMENTS } from '../prompts/labor-contract-analysis.js'
 import { auditLaborOccupationalResponsibilities, validateLaborRevisionCheck, auditLaborMonthlyDates, laborReadOnlyGroupIds, laborContractTermFacts, laborPhaseOptions, planLaborRevisionBatches, runLaborModelUnit, auditLaborRevisionDefaults, auditLaborRevisionPositions } from '../services/labor-analysis-units.js'
 import { runContractDraft, classifyContractDraft, buildFakeDraft } from '../workflows/contract-draft.js'
 import { buildRewriteUserMessage } from '../prompts/agent-3-rewrite.js'
@@ -13,6 +14,18 @@ const quote = (index) => createHash('sha256').update(`synthetic-clause-${index}`
 const finding = (index) => ({ topic: '薪酬', level: '中', title: `条款${quote(index).slice(0, 20)}`,
   location: `第${index + 1}条`, quote: quote(index), risk: `影响${quote(index)}`, advice: '补充明确执行安排' })
 const page = (findings = [], roundComplete = true) => ({ contractInfo: {}, coverage, findings, roundComplete })
+// 结构分析现在是 Markdown 流式输出，四个章节与逐项检查必须齐全。
+const syntheticStructureReport = [
+  '# 合同基础识别', '- 合同类型：劳动合同', '- 合同子类型：固定期限', '- 类型判定依据：合成依据',
+  '- 交易角色与主体：', '  - 用人单位（甲方）：名称：合成公司', '- 合同目的与标的：合成标的',
+  '- 已识别附件/引用文件：未识别到附件或引用文件',
+  '', '# 条款结构图', '按原文顺序列出：', '- 第一条｜合成条款｜合成约定｜文本状态：完整',
+  '', '# 要素完整性核查',
+  ...LABOR_CONTRACT_COMPLETENESS_ELEMENTS.map((name) => `- ${name}：待确认（全文未提及）`),
+  '', '# 文本一致性与待确认事项', '- 格式与编号：编号连续', '- 金额大小写：未发现异常', '- 日期：未发现异常',
+  '- 主体称谓：未发现异常', '- 附件引用：未发现异常', '- 交叉条款冲突：未发现可直接指认的冲突。',
+  '', '待确认事项（需用户补充的交易事实）：', '- 合成待确认事项。'
+].join('\n')
 const aux = ({ phase, userMessage }) => phase === 'assessment' ? { score: 80, conclusion: '合成测试结论', complete: true }
   : phase === 'quality' ? { decisions: JSON.parse(userMessage).candidates.map(({ candidateId }) => ({ candidateId, kind: 'risk', reason: '合成测试中保留独立缺陷' })), complete: true }
   : phase === 'dependencies' ? { independentIds: JSON.parse(userMessage).groups.map((group) => group.id), serialIds: [], complete: true }
@@ -27,6 +40,7 @@ function harness({ review, rewriteFn = rewrite, consolidateFn = async () => '', 
     consolidate: consolidateFn, rewrite: rewriteFn,
     streamGenerate: async function* (request) {
       requestSpy?.(request)
+      if (request.phase === 'structure') { yield { content: syntheticStructureReport, finishReason: 'stop' }; return }
       const value = request.phase === 'dependencies' && dependency ? dependency(request)
         : request.phase === 'final-check' && check ? check(request) : request.phase === 'quality' && quality ? quality(request) : aux(request)
       if (value) { yield { content: JSON.stringify(value), finishReason: 'stop' }; return }
@@ -83,10 +97,10 @@ assert.equal(auditLaborRevisionDefaults([{ findingId: 'test', rewrittenText: '�
 assert.equal(auditLaborRevisionDefaults([{ findingId: 'test', rewrittenText: '工资依法及时足额支付；经济补偿在办结交接时支付。' }], '').length, 0)
 assert.equal(auditLaborRevisionDefaults([{ findingId: 'test', rewrittenText: '沿用原文：双方建议15日结算。' }], '双方建议15日结算。').length, 0, '不误拦原文已有业务约定')
 
-// Deep mode spends reasoning on risk review and the final legal/consistency check.
-for (const stage of ['review', 'assessment', 'consolidation', 'dependencies', 'rewrite', 'final-check']) {
+// Deep mode spends reasoning on structure analysis, risk review and the final legal/consistency check.
+for (const stage of ['structure', 'review', 'assessment', 'consolidation', 'dependencies', 'rewrite', 'final-check']) {
   assert.equal(laborPhaseOptions('fast', stage).thinking.type, 'disabled')
-  const expected = ['review', 'final-check'].includes(stage) ? 'thinking' : 'fast'
+  const expected = ['structure', 'review', 'final-check'].includes(stage) ? 'thinking' : 'fast'
   assert.equal(laborPhaseOptions('thinking', stage).mode, expected)
   assert.equal(laborPhaseOptions('thinking', stage).reasoningEffort, expected === 'thinking' ? 'low' : undefined)
 }
@@ -94,7 +108,7 @@ const hybridPhases = new Set()
 const hybrid = harness({ count: 2,
   requestSpy: ({ phase, mode, requestTimeoutMs }) => {
     hybridPhases.add(phase)
-    const expected = ['review', 'final-check'].includes(phase) ? 'thinking' : 'fast'
+    const expected = ['structure', 'review', 'final-check'].includes(phase) ? 'thinking' : 'fast'
     assert.equal(mode, expected)
     assert.equal(requestTimeoutMs, expected === 'thinking' ? 240_000 : 120_000)
   },
@@ -107,7 +121,7 @@ const hybrid = harness({ count: 2,
 })
 hybrid.args.task.mode = 'thinking'
 await hybrid.workflow(hybrid.args)
-assert.ok(['review', 'assessment', 'consolidation', 'dependencies', 'rewrite', 'final-check'].every((stage) => hybridPhases.has(stage)))
+assert.ok(['structure', 'review', 'assessment', 'consolidation', 'dependencies', 'rewrite', 'final-check'].every((stage) => hybridPhases.has(stage)))
 
 // Candidate classification must retain independent defects and reminders, dedupe
 // only against a retained earlier candidate, and resume completed batches.
@@ -133,6 +147,12 @@ const qualityResult = await qualityChecked.workflow(qualityChecked.args)
 assert.equal(qualityFirstBatchCalls, 1, '恢复时不重做已完成核验批次')
 assert.equal(qualityResult.findings.length, 6)
 assert.equal(qualityResult.reviewRounds[0].newCount, 6)
+assert.doesNotMatch(qualityResult.firstRoundReport, new RegExp(finding(1).title), '质量过滤移除第一轮中的执行提醒')
+assert.doesNotMatch(qualityResult.firstRoundReport, new RegExp(finding(6).title), '质量过滤移除第一轮中的重复风险')
+assert.match(qualityResult.firstRoundReport, new RegExp(finding(0).title), '独立第一轮问题继续保留')
+assert.equal(qualityChecked.saved.get('review').result.firstRoundReport, qualityResult.firstRoundReport, '检查点保存过滤后的第一轮正文')
+assert.equal(qualityChecked.events.filter(({ event }) => event === 'review.delta').at(-1).data.firstRoundReport,
+  qualityResult.firstRoundReport, '最终质量核对只替换第一轮风险正文')
 assert.ok(qualityResult.warnings.some((warning) => warning.includes('凭证核对提醒')))
 assert.equal(qualityResult.sourceDocuments[0].text, qualityChecked.args.sourceDocuments[0].text)
 const forwardDuplicate = harness({ count: 2, review: async function* (request) {
@@ -141,7 +161,15 @@ const forwardDuplicate = harness({ count: 2, review: async function* (request) {
   { candidateId: 'candidate-1', kind: 'duplicate', duplicateOf: 'candidate-2', reason: '同批保留问题的同一缺陷' },
   { candidateId: 'candidate-2', kind: 'risk', reason: '保留实际缺陷' }
 ] }) })
-assert.equal((await forwardDuplicate.workflow(forwardDuplicate.args)).findings.length, 1, '同批指向后面的有效risk不因顺序失败')
+const forwardDuplicateResult = await forwardDuplicate.workflow(forwardDuplicate.args)
+assert.equal(forwardDuplicateResult.findings.length, 1, '同批指向后面的有效risk不因顺序失败')
+// 被合并为重复项的问题必须留在报告里并说明理由，不能静默消失。
+assert.match(forwardDuplicateResult.reviewReport, /# 完整性清单/)
+assert.match(forwardDuplicateResult.reviewReport, /重复项已合并：/)
+assert.match(forwardDuplicateResult.reviewReport, /同批保留问题的同一缺陷/)
+assert.ok(forwardDuplicate.events.some(({ event, data }) => event === 'stage.progress'
+  && typeof data.message === 'string' && data.message.includes('与其他问题属于同一缺陷已合并')), '必须提示合并了几条')
+assert.ok(Array.isArray(forwardDuplicateResult.qualityNotes) && forwardDuplicateResult.qualityNotes.length)
 const malformedQuality = harness({ count: 1, review: async function* (request) {
   yield respond(page(/审查轮次：第 1/.test(request.userMessage) ? [finding(0)] : []))
 }, quality: () => ({ decisions: [{ candidateId: 'candidate-1', kind: 'duplicate', duplicateOf: 'invented-id', reason: '错误去重目标' }], complete: true }) })
@@ -281,7 +309,8 @@ assert.equal(markerCalls, 3)
 assert.equal(marker.saved.get('review-pages').result.payload.findings.length, 1)
 assert.equal(marker.saved.has('analysis'), false)
 
-// Repeated continuations switch to coverage audit, then stop explicitly.
+// Repeated continuations switch to coverage audit, then end that content block explicitly.
+// 对齐商业合同审查：无进展不再把整轮判失败，而是保留成果并如实标注未核对范围。
 let noProgressCalls = 0
 let auditSeen = false
 const stagnant = harness({ review: async function* ({ userMessage }) {
@@ -289,18 +318,42 @@ const stagnant = harness({ review: async function* ({ userMessage }) {
   auditSeen ||= userMessage.includes('连续续写没有有效进展')
   yield respond(page([], false))
 } })
-await assert.rejects(stagnant.workflow(stagnant.args), (error) => error.code === 'labor_analysis_no_progress')
-assert.ok(auditSeen)
-assert.ok(noProgressCalls < 7)
+const stagnantResult = await stagnant.workflow(stagnant.args)
+assert.ok(auditSeen, '连续无进展时应先进入覆盖核对')
+// 第 1 页首次写入 coverage 算一次进展，之后连续两页无进展才进入覆盖核对，再两页后收尾。
+assert.equal(noProgressCalls, 5, '覆盖核对应有限收尾，不得无限续写')
+assert.equal(stagnantResult.reviewComplete, false, '覆盖核对提前结束时必须标记未完整核对')
+assert.ok(stagnantResult.warnings.some((warning) => warning.includes('覆盖核对')), '未核对范围必须写入警告')
+assert.ok(stagnantResult.missingItems.some((item) => item.topic === '覆盖核对'), '未核对范围必须进入待确认事项')
+assert.deepEqual(stagnant.saved.get('material-coverage').result.checked, [], '被强制收尾的内容块不能计为已核对')
+assert.equal(stagnant.saved.get('material-coverage').result.partial, true)
 
-// Paraphrasing a coverage summary is not effective progress.
+// Paraphrasing a coverage summary is not effective progress; it ends the same way without failing.
 let paraphraseCalls = 0
 const paraphrase = harness({ review: async function* () {
   paraphraseCalls += 1
   yield respond({ ...page([], false), coverage: coverage.map((item) => ({ ...item, summary: `同一状态的不同措辞${paraphraseCalls}` })) })
 } })
-await assert.rejects(paraphrase.workflow(paraphrase.args), (error) => error.code === 'labor_analysis_no_progress')
-assert.ok(paraphraseCalls < 7)
+const paraphraseResult = await paraphrase.workflow(paraphrase.args)
+assert.equal(paraphraseResult.reviewComplete, false, '仅改写覆盖说明不算进展，应标记未完整核对')
+assert.equal(paraphraseCalls, 5)
+assert.ok(paraphraseResult.warnings.some((warning) => warning.includes('覆盖核对')))
+
+// 基础检查项本身没凑齐时也不能把失败点后移到 assertAllTopicChecks：
+// 强制收尾要先把未确认主题按 unclear 补齐，再正常返回。
+let shortCoverageCalls = 0
+const shortCoverage = harness({ review: async function* () {
+  shortCoverageCalls += 1
+  yield respond({ ...page([], false), coverage: coverage.slice(0, 3) })
+} })
+const shortCoverageResult = await shortCoverage.workflow(shortCoverage.args)
+assert.equal(shortCoverageCalls, 5)
+assert.equal(shortCoverageResult.reviewComplete, false)
+assert.equal(shortCoverageResult.topicChecks.length, LABOR_CONTRACT_ANALYSIS_TOPICS.length, '强制收尾后仍必须给出全部基础检查项')
+const filledCoverage = shortCoverage.saved.get('review').result.generated.coverage
+assert.equal(filledCoverage.length, LABOR_CONTRACT_ANALYSIS_TOPICS.length, '缺失主题必须补进已保存的覆盖记录')
+assert.deepEqual(filledCoverage.filter((item) => item.status === 'unclear').map((item) => item.id),
+  LABOR_CONTRACT_ANALYSIS_TOPICS.slice(3).map((topic) => topic.id), '未确认主题必须如实标记为 unclear')
 
 // Worker refresh/resume retains complete pages; an explicit fatal error is not
 // network retry. Resume reviews only remaining findings with a new provider turn.
@@ -340,8 +393,19 @@ assert.equal(maximum, 2)
 assert.equal(parallel.saved.get('rewrite-batches').result.revisions.length, 9)
 assert.equal(parallelResult.revisions.length, 9)
 assert.deepEqual(parallelResult.revisions.map((item) => item.findingId), Array.from({ length: 9 }, (_, index) => `revision-group-${index + 1}`))
-const snapshots = parallel.events.filter(({ event }) => event === 'rewrite.result').map(({ data }) => data.revisions.length)
-assert.ok(snapshots.every((size, index) => !index || size >= snapshots[index - 1]))
+// 逐批增量：partial 事件只带本批新增的 added，终态事件才带完整数组。
+const partialRewrites = parallel.events.filter(({ event, data }) => event === 'rewrite.result' && data.partial)
+const finalRewrite = parallel.events.filter(({ event, data }) => event === 'rewrite.result' && !data.partial).at(-1)
+assert.ok(partialRewrites.length, '必须逐批推送修订增量')
+assert.ok(partialRewrites.every(({ data }) => Array.isArray(data.added) && data.revisions === undefined),
+  '逐批事件只带新增项，不能重发整个数组')
+assert.ok(partialRewrites.every(({ data }) => data.added.length <= 9))
+assert.ok(finalRewrite && Array.isArray(finalRewrite.data.revisions), '终态事件必须带完整修订数组')
+assert.deepEqual(finalRewrite.data.revisions.map((item) => item.findingId), parallelResult.revisions.map((item) => item.findingId))
+// 前端按 findingId 合并增量，结果必须与终态数组一致。
+const merged = parallel.events.filter(({ event }) => event === 'rewrite.result')
+  .reduce((report, { event, data }) => reduceLaborProgress(report, event, data), {}).revisions
+assert.deepEqual(merged.map((item) => item.findingId), parallelResult.revisions.map((item) => item.findingId))
 
 // Overlap, same anchor, known dependency and unknown location all use serial.
 const groups = Array.from({ length: 9 }, (_, index) => ({ id: String(index), lineStart: index * 10, lineEnd: index * 10 }))
@@ -486,7 +550,7 @@ for (const mode of ['fast', 'thinking']) {
       } })),
     streamFn: async function* (_system, _message, options) {
       draftOptions = options
-      yield { content: buildFakeDraft({ instruction: '起草保密协议' }) }
+      yield { content: buildFakeDraft({ instruction: '起草保密协议' }), finishReason: 'stop' }
     }
   })
   assert.equal(draftOptions.thinking.type, mode === 'fast' ? 'disabled' : 'enabled')

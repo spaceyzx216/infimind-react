@@ -1,18 +1,17 @@
 import { useComposerSend } from '../hooks/useComposerSend'
 import QueuedMessages from '../components/QueuedMessages'
 import SideChatEmptyState from '../components/SideChatEmptyState'
+import SidebarSearch from '../components/SidebarSearch.jsx'
 import React, { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import {
-  AlertTriangle, ArrowUpRight, FileText, History, Loader2,
-  MessageCircle, PenLine, Plus, Send, BookOpen, Trash2, X
-} from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, FileText, Loader2, MessageCircle, PenLine, Plus, Send, BookOpen, Trash2, X } from 'lucide-react'
 import { useAuth } from '../components/AuthProvider'
 import { authFetch } from '../utils/auth-api'
 import { ACCEPTED_EXTENSIONS, mergeSelectedFiles, describeRejection } from '../utils/file-selection.js'
 import { formatRelativeTime } from '../utils/relative-time.js'
 import { formatArbitrationResult, remarkArbitrationText } from '../utils/arbitration-result.js'
+import { throttleWithTrailing, MARKDOWN_THROTTLE_MS } from '../utils/stream-buffer.js'
 import ToolComposerControls from '../components/ToolComposerControls'
 import { useWorkspaceText, useWorkspaceLayout } from '../components/WorkspaceContext'
 import { useConversationActions } from '../hooks/useConversationActions'
@@ -226,7 +225,10 @@ export default function LaborArbitrationPage() {
         ...(deadlines.length ? { sourceExpiresAt: new Date(Math.min(...deadlines)).toISOString() } : {}),
         ...(result?.conversationTitle && !item.titleGenerated ? { title: result.conversationTitle, titleGenerated: true } : {}),
         messages: item.messages.map((message) => message.id !== assistantId ? message : {
+          // 成功时由正式报告接管，清掉流式草稿；失败/停止时保留已生成的部分，
+          // 否则用户会看着刚长出来的正文突然消失。
           ...message, taskId: task.id, status: '', recoverable: false, result, version,
+          streamText: result ? '' : (message.streamText || ''),
           stopped: task.status === 'cancelled', failed: task.status === 'failed',
           error: task.status === 'failed' ? task.errorSummary || '分析未完成，请稍后重试。' : ''
         })
@@ -244,6 +246,12 @@ export default function LaborArbitrationPage() {
   const pollTask = async (conversationId, assistantId, taskId, run) => {
     let after = 0
     let reconnectFailures = 0
+    // 流式正文：本地累积、按时间窗提交，避免每个分片都重解析整篇 Markdown。
+    let streamedText = ''
+    const flushStreamText = throttleWithTrailing(() => {
+      if (!streamedText) return
+      updateMessage(conversationId, assistantId, { streamText: streamedText })
+    }, MARKDOWN_THROTTLE_MS)
     while (isCurrentRun(conversationId, run)) {
       try {
         const eventResponse = await authFetch(`/api/tasks/${taskId}/events?after=${after}`, {
@@ -254,6 +262,15 @@ export default function LaborArbitrationPage() {
         await consumeTaskEvents(eventResponse, (event, data) => {
           after = Math.max(after, Number(data?._seq) || 0)
           if (!isCurrentRun(conversationId, run) || run.interrupting) return
+          if (event === 'arbitration.delta') {
+            const chunk = String(data?.content || '')
+            if (chunk) {
+              // 累积在本地变量里，渲染按 MARKDOWN_THROTTLE_MS 节流：
+              // 逐块 setState 会让整篇 Markdown 每块都重解析一次（O(n²)）。
+              streamedText = data.replace ? chunk : `${streamedText}${chunk}`
+              flushStreamText()
+            }
+          }
           if (event === 'arbitration.progress') updateMessage(conversationId, assistantId, { taskId, status: run.cancelPending ? '正在停止分析…' : (data.label || '正在处理仲裁材料…') })
           if (event === 'task.cancel_requested') updateMessage(conversationId, assistantId, { taskId, status: '正在停止分析…' })
         }, run.controller.signal)
@@ -271,6 +288,8 @@ export default function LaborArbitrationPage() {
       const task = payload.task
       if (!isCurrentRun(conversationId, run)) return
       if (TERMINAL.includes(task?.status)) {
+        // 收尾前把节流窗口里最后一段正文落地，否则末尾会被丢掉。
+        flushStreamText.flush()
         if (!run.interrupting) { finishTask(conversationId, assistantId, task); clearRun(conversationId, run) }
         return
       }
@@ -555,7 +574,7 @@ export default function LaborArbitrationPage() {
   return (
     <main className={`contract-chat labor-consult labor-arbitration ${collapsed ? 'sidebar-collapsed' : ''}`}>
       <aside className="chat-sidebar">
-        <label className="sidebar-search"><History size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("搜索案件会话")} /></label>
+        <SidebarSearch value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("搜索历史案件")} />
         <div className="sidebar-brand"><span className="brand-orb"><img src="/logo.png" alt="" /></span><strong>{t("法飞飞")}</strong></div>
         <button type="button" className="sidebar-action" onClick={startConversation}><PenLine size={19} />{t("新建案件")}</button>
         <p className="history-label">{t("案件会话")}</p>
@@ -586,6 +605,7 @@ export default function LaborArbitrationPage() {
               ? <div className="user-turn" key={message.id}><p>{message.content}</p>{message.files?.map((file) => <div className="attached-file" key={`${message.id}-${file.name}`}><FileText size={17} /><span>{file.name}</span><small>{formatSize(file.size)}</small></div>)}</div>
               : <div className="assistant-turn result-turn" key={message.id}><div>
                 {message.status && <p className="assistant-status"><Loader2 size={15} className="spinner" />{message.status}</p>}
+                {!message.result && message.streamText && <div className="labor-answer arb-answer arb-stream-answer"><ReactMarkdown remarkPlugins={[remarkGfm, remarkArbitrationText]}>{message.streamText}</ReactMarkdown></div>}
                 {message.result && <ArbitrationReport result={message.result} draftCount={message.version} disabled={readOnly || activeRequest.loading} stale={isArbitrationDraftStale(message.result, [...activeConversation.messages].reverse().find((item) => item.result?.caseRecord)?.result.caseRecord, activeConversation.materials)} onGenerateDraft={() => submit('draft')} />}
                 {message.failed && <p className="arb-message-error"><AlertTriangle size={15} />{message.error || t("本次任务未完成。")}</p>}
                 {message.stopped && <p className="assistant-status">{t("本次回答已停止，可继续补充或提问。")}</p>}

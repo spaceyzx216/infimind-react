@@ -59,7 +59,21 @@ const passwordMatches = async (password, row) => {
   return expected.length === actual.length && timingSafeEqual(expected, actual)
 }
 
-const serializeInviteCode = () => `FF-${randomBytes(12).toString('hex').toUpperCase()}`
+// 邀请码格式：7 位大写字母+数字（如 UNC8MQU、I78383S）。36^7≈781 亿种，
+// 取模前先丢弃 >=252 的字节，避免字符分布偏差；唯一性仍由 invite_codes.code_hash 兜底。
+const INVITE_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+const INVITE_CODE_LENGTH = 7
+const serializeInviteCode = () => {
+  let code = ''
+  while (code.length < INVITE_CODE_LENGTH) {
+    for (const byte of randomBytes(INVITE_CODE_LENGTH * 2)) {
+      if (code.length >= INVITE_CODE_LENGTH) break
+      if (byte >= 252) continue
+      code += INVITE_CODE_ALPHABET[byte % INVITE_CODE_ALPHABET.length]
+    }
+  }
+  return code
+}
 const tokenHash = (token) => hashSecret(token)
 
 export function createAuthService(database, options = {}) {

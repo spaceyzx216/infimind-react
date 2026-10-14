@@ -1,0 +1,207 @@
+[
+  {
+    "name": "T01基本协调手册.docx",
+    "sha256": "b79f4f74f9be8bd039162e506a17e341b227af682b13d3a4725b606043990e6c",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T01基本协调手册.txt",
+    "sha256": "8730cbf99edabfbfb3ecde82aafb9056bcb06255ba4969f57e69a4a5e84e1e3f",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T02风险集中手册.docx",
+    "sha256": "5c3d1f411529645681415ffdff12d01da69fd5f286fb8db2ed41e818bdc8a5ca",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T02风险集中手册.txt",
+    "sha256": "69a604e28ffaa76544612f1abb94fea26d7c362f22b59aea84977529381f63b1",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T03跨章节矛盾手册.docx",
+    "sha256": "b889d6eb7da19401696fe0bd088cf31d642425888d9ca7e3bb2f1784d8bce4e5",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T03跨章节矛盾手册.txt",
+    "sha256": "e49d9655d4304dbd73e976bdf975c2dcf95fb4433747ad1c6084e07787ce6c87",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T04适用条件不同手册.docx",
+    "sha256": "ac9d519cac5fe86d9ee141d93512f00c1aba1f8001701323562f9d59d861fd80",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T04适用条件不同手册.txt",
+    "sha256": "c2b5a71b743865ecd7d76dc222d0a143cc07e121570f01bda6a33c2fd3e3246b",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T05短条款片段.docx",
+    "sha256": "4b8eb667b749c3b778c438c7aa9489c4a531f5b98b4bc58bdcf2bcad5cdfef2a",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T05短条款片段.txt",
+    "sha256": "5b11aaeecd3de8801084070d48e19c47e1da7dbeb74c59dab869bcc8d0930db6",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T06无关工具首页文字.docx",
+    "sha256": "3b2b3039b9077fdfa66e8fdc07423fb8eead31b11ba9bce96470a8ef2a7900d5",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T06无关工具首页文字.txt",
+    "sha256": "504384d81d643cba35e8685f581e2f81a6e4e4a1e2ffdb63369edba901404600",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T07提示词注入样例.docx",
+    "sha256": "cd82677d0401ce18112880de4bda5cf189a2036782336d719347162c40a7ddbf",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T07提示词注入样例.txt",
+    "sha256": "34296ed64200b972dfcfb686a8df66b776d0874f5fde5c94a040b49259e53e55",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T08劳动合同.docx",
+    "sha256": "f0407fd730290847959e93d57b40869cbfffb18dc274d3a4b74d112ac581bbc3",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T08劳动合同.txt",
+    "sha256": "fab7452eb05f9f7e109ec3961d325ae1621a278dbc7133e93680bbed954b0c9d",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T08员工手册.docx",
+    "sha256": "754be140f9ab247bb92b45532ba761f7efacd7211239c4aec97ecd45a513cff7",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T08员工手册.txt",
+    "sha256": "375b78ee916ff20db75bad9e702e8bfc7ffbfbf6a5f70cfcb14a0a8b652a1f1b",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T08考勤制度.docx",
+    "sha256": "1f1291bfc3a81be1b38481fc77c8815aea6c4d2623c45923951c084e898d4ae5",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T08考勤制度.txt",
+    "sha256": "1cf9daaf03e6f735cf3729bfacca74abec52d0389b62b8b0c881013c8b85a55d",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T09正式员工制度.docx",
+    "sha256": "5ef1a124808bba5516fd4662492ecc2cfd06a9bc39293503767dfc624ee4cef6",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T09正式员工制度.txt",
+    "sha256": "8d2be5bbb612b4d024a0a1af330df758adb454cc655f66d4e169cc61565ad9e9",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T09访客说明.docx",
+    "sha256": "c0ee8a4b71ac60483a24be6aef73b99cf3232b2f629b757a383d9e94b7fd59d2",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T09访客说明.txt",
+    "sha256": "fed8a9bf893dade79827c2e01678b0934d4c922c222304eba4f623b77aaee605",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T10重复原文手册.docx",
+    "sha256": "82c65a2428eac93f56c78a90971ba582581c3524bbf7f1e4156ab620724a67d2",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T10重复原文手册.txt",
+    "sha256": "0016b4712d65a6650e65cd68cfbe26cc9a5b51936b87ad8cc2531e448e9555ad",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T11图文表格手册.docx",
+    "sha256": "2f86aa64891b3168423a03df418bf86b9760f96175c503f3d9306f7a48d56bff",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T11图文表格手册.txt",
+    "sha256": "727e24d737984570255c69cc6ad2f44738222e86f8689ff09a320ef8e20fb762",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T11图片条款.png",
+    "sha256": "ed94f7370f01dcfefcdd6c428ad1d44b11cc7fe23819bf949a1c37c5f9db1d83",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T12长手册.docx",
+    "sha256": "5f328118e9cad70be952e957db7b5ad164b75567106c692b7b50c6eb366e64d9",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T12长手册.txt",
+    "sha256": "3ed30d3c2a7ae0811e2520d9fa404b27e38980be679de09378c8489417163a03",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T13空白.txt",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T14损坏.docx",
+    "sha256": "2251c0a09d1c6a40507c59b06c45c8baf120edbf2d9cb5781929c021c01d06b8",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T15图文混排.pdf",
+    "sha256": "2b4edc58c6402010288b71605e448d57476dcd34f567e5a71a19ef32f843fbaa",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T16无关首页.png",
+    "sha256": "45a16a9c6f4a4afc3d58fa3d800f05953673717f48152ec7f293df2dd5ec92fe",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T17纯扫描制度.pdf",
+    "sha256": "3af7d907ff45bf6b32f66758483f96fc4822ebd486b382c44fc4d01b4ec5de2f",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T18薪酬工时安全平等风险.docx",
+    "sha256": "0639b7e7649448e68b879b8afda30f08a60d08d57944b120a4f7b45cced32ae3",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T18薪酬工时安全平等风险.txt",
+    "sha256": "42c5914f8c3be9bcf36e20a29ca04e333da2b394027b2c4c8cba73fa3c072040",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T19明确协调考勤制度.docx",
+    "sha256": "cc010676dd9cb4ef274f989a460d7fe3f00ee55f2f4c9ed83986d2f99b7cfc1d",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T19明确协调考勤制度.txt",
+    "sha256": "0b75321491322e662ca6ef259893d351f156ab671935fcfb916c1430481ae8e6",
+    "documentBodyUnchanged": true
+  },
+  {
+    "name": "T20损坏图片.png",
+    "sha256": "ff203a69442d0c53dd13260e6920baad0f3af8b5b528a956308877e30afac2dc",
+    "documentBodyUnchanged": false
+  }
+]

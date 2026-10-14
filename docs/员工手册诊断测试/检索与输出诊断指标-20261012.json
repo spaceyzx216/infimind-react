@@ -1,0 +1,312 @@
+{
+  "date": "2026-10-12",
+  "syntheticOnly": true,
+  "annotationStatus": "assistant-reviewed-not-legal-gold",
+  "corpus": {
+    "ruleScenesIncludingBoundary": 13,
+    "knownScenes": 11,
+    "unexpandedBoundaryScenes": 2,
+    "queries": 7,
+    "syntheticReferenceDocuments": 9
+  },
+  "ruleBefore": {
+    "tp": 2,
+    "fp": 2,
+    "fn": 7,
+    "precision": 0.5,
+    "recall": 0.2222222222222222
+  },
+  "ruleAfter": {
+    "tp": 7,
+    "fp": 2,
+    "fn": 2,
+    "precision": 0.7777777777777778,
+    "recall": 0.7777777777777778
+  },
+  "knownRuleBefore": {
+    "tp": 2,
+    "fp": 2,
+    "fn": 5,
+    "precision": 0.5,
+    "recall": 0.2857142857142857
+  },
+  "knownRuleAfter": {
+    "tp": 7,
+    "fp": 2,
+    "fn": 0,
+    "precision": 0.7777777777777778,
+    "recall": 1
+  },
+  "actualCandidateBefore": {
+    "tp": 1,
+    "fp": 1,
+    "fn": 2,
+    "precision": 0.5,
+    "recall": 0.3333333333333333
+  },
+  "actualCandidateAfter": {
+    "tp": 3,
+    "fp": 1,
+    "fn": 0,
+    "precision": 0.75,
+    "recall": 1
+  },
+  "referenceBefore": {
+    "k": 2,
+    "precisionAtK": 0.21428571428571427,
+    "recallAtK": 0.42857142857142855,
+    "mrrAtK": 0.35714285714285715
+  },
+  "referenceAfter": {
+    "k": 2,
+    "precisionAtK": 0.5,
+    "recallAtK": 1,
+    "mrrAtK": 1
+  },
+  "followupBefore": {
+    "k": 4,
+    "precisionAtK": 0.25,
+    "recallAtK": 1,
+    "mrrAtK": 1
+  },
+  "followupAfter": {
+    "k": 4,
+    "precisionAtK": 0.25,
+    "recallAtK": 1,
+    "mrrAtK": 1
+  },
+  "boundaryAfter": [
+    {
+      "id": "H01",
+      "tp": 0,
+      "fp": 0,
+      "fn": 1,
+      "precision": null,
+      "recall": 0,
+      "missed": [
+        "a|b"
+      ],
+      "extra": []
+    },
+    {
+      "id": "H02",
+      "tp": 0,
+      "fp": 0,
+      "fn": 1,
+      "precision": null,
+      "recall": 0,
+      "missed": [
+        "a|b"
+      ],
+      "extra": []
+    }
+  ],
+  "referenceLive": {
+    "case": "R25",
+    "referenceCount": 9,
+    "lawMetadataCount": 0,
+    "actualTopTitles": [
+      "法定节假日",
+      "工作日延时"
+    ]
+  },
+  "selectedRuns": {
+    "R21": "20261012引用归属最终恢复",
+    "R22": "20261012引用归属最终恢复",
+    "R23": "20261012上下文优化最终诊断",
+    "R24": "20261012上下文优化最终诊断",
+    "R25": "20261012引用归属最终恢复",
+    "R26": "20261012上下文优化最终诊断",
+    "T12": "20261012引用归属长文跨文件恢复",
+    "T08": "20261012引用归属长文跨文件恢复",
+    "T18": "20261012最终长文跨文件法律方向复验",
+    "T01": "20261012最终长文跨文件法律方向复验"
+  },
+  "reviewedFindingCount": 18,
+  "presetDirectionsMatched": 14,
+  "additionalPending": 4,
+  "generationPrecision": null,
+  "legalAccuracy": null,
+  "reviews": [
+    {
+      "caseId": "R21",
+      "findingId": "finding:559fb58156d6a8ba4773",
+      "title": "‘不存在例外’可能绝对排除法定或正当例外",
+      "review": "additional-pending-legal-review",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": "R21无例外条款是否构成独立风险仍待定；不得为了凑精确率直接算假阳性。"
+    },
+    {
+      "caseId": "R21",
+      "findingId": "finding:5d99fdaa878294389eed",
+      "title": "“不存在例外”可能绝对排除依法请假等法定或制度允许情形",
+      "review": "additional-pending-legal-review",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": "R21无例外条款是否构成独立风险仍待定；不得为了凑精确率直接算假阳性。"
+    },
+    {
+      "caseId": "R21",
+      "findingId": "finding:9ffc5f6a680e3d383d35",
+      "title": "同一办公室员工到岗时间同时规定为九时和十时且无优先顺序",
+      "review": "preset-direction-supported",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": ""
+    },
+    {
+      "caseId": "R22",
+      "findingId": "finding:3754d86762574a8208cd",
+      "title": "同一员工同一月份薪金/劳动报酬发放日冲突且无优先顺序",
+      "review": "preset-direction-supported",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": ""
+    },
+    {
+      "caseId": "R25",
+      "findingId": "finding:b34d68f04d320278985f",
+      "title": "法定节假日加班仅安排补休不支付加班工资",
+      "review": "preset-direction-supported",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": ""
+    },
+    {
+      "caseId": "T12",
+      "findingId": "finding:7943b15b872d4191ee38",
+      "title": "正常辞职统一收取两万元违约金且声明无服务期、竞业限制约定",
+      "review": "preset-direction-supported",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": ""
+    },
+    {
+      "caseId": "T12",
+      "findingId": "finding:39e141885fbdfc6ef037",
+      "title": "忘打卡超过一个工作日一律记旷工且不允许补正的合法性待核实",
+      "review": "additional-pending-legal-review",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": ""
+    },
+    {
+      "caseId": "T12",
+      "findingId": "finding:96a008b25d1f646ca089",
+      "title": "忘打卡补正期限与旷工认定冲突（归并）",
+      "review": "preset-direction-supported",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": ""
+    },
+    {
+      "caseId": "T08",
+      "findingId": "finding:b52f482b8bae02cf4b0d",
+      "title": "绝对不接受实际出勤证明可能剥夺员工举证补救机会",
+      "review": "additional-pending-legal-review",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": ""
+    },
+    {
+      "caseId": "T08",
+      "findingId": "finding:a0a2bc45ba5dbb7ef49c",
+      "title": "劳动合同与员工手册约定的工资发放日不一致（归并重复冲突）",
+      "review": "preset-direction-supported",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": ""
+    },
+    {
+      "caseId": "T08",
+      "findingId": "finding:7fc6b031ad6da44e78d4",
+      "title": "忘打卡补正期限及实际出勤证明规则冲突（归并重复冲突）",
+      "review": "preset-direction-supported",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": ""
+    },
+    {
+      "caseId": "T18",
+      "findingId": "finding:42070f9d5b152eb402b8",
+      "title": "正常提供劳动工资可低于最低工资且不补差额",
+      "review": "preset-direction-supported",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": ""
+    },
+    {
+      "caseId": "T18",
+      "findingId": "finding:887c5ea969ccddcb2c39",
+      "title": "强制每周额外无偿加班且不支付加班工资、不补休",
+      "review": "preset-direction-supported",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": ""
+    },
+    {
+      "caseId": "T18",
+      "findingId": "finding:ac4a745ded160a783aa1",
+      "title": "一次普通记录错误即扣除当月全部工资",
+      "review": "preset-direction-supported",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": ""
+    },
+    {
+      "caseId": "T18",
+      "findingId": "finding:e9f8b8f6915f5935790f",
+      "title": "仅因怀孕即可解除并取消产假",
+      "review": "preset-direction-supported",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": "T18孕产修改稿的“依法约定”解除表述需复核，不能当作通用解除依据。"
+    },
+    {
+      "caseId": "T18",
+      "findingId": "finding:720ca439ce7d88560873",
+      "title": "要求放弃工伤认定和全部工伤待遇",
+      "review": "preset-direction-supported",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": ""
+    },
+    {
+      "caseId": "T18",
+      "findingId": "finding:114446a89cfaa5dc90ca",
+      "title": "仅录用未婚未育女性并在结婚生育时辞退",
+      "review": "preset-direction-supported",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": ""
+    },
+    {
+      "caseId": "T18",
+      "findingId": "finding:4bf7c5b8b480ec48f41e",
+      "title": "所有岗位无补偿统一竞业限制两年且不区分接触信息",
+      "review": "preset-direction-supported",
+      "citationLocated": true,
+      "legalGold": false,
+      "suggestionNeedsLegalReview": true,
+      "note": ""
+    }
+  ]
+}

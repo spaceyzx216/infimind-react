@@ -1,3 +1,4 @@
+import { MAX_MODEL_OUTPUT_TOKENS } from '../../src/utils/context-budget.js'
 /**
  * 会话标题提炼（conversation auto-titling）。
  *
@@ -121,7 +122,7 @@ export async function refineConversationTitle({ question }) {
     raw = await chat(TITLE_SYSTEM_PROMPT, text.slice(0, QUESTION_EXCERPT_CHARS), {
       model: getFlashModel(),
       temperature: 0.2,
-      maxTokens: 64,
+      maxTokens: MAX_MODEL_OUTPUT_TOKENS,
       // 文本压缩任务，不需要推理；开启只会平白增加延迟
       thinking: { type: 'disabled' }
     })

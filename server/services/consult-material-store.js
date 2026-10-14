@@ -1,3 +1,8 @@
+import { createHash } from 'node:crypto'
+
+export const materialStoreKey = (userId, conversationId) => userId
+  ? createHash('sha256').update(JSON.stringify([String(userId), String(conversationId)])).digest('hex') : String(conversationId || '')
+
 /**
  * 用工咨询的「会话材料」存储。
  *
@@ -15,7 +20,7 @@
  */
 const TTL_MS = 2 * 60 * 60 * 1000
 const MAX_CONVERSATIONS = 200
-/** 单会话材料正文总量上限。与注入上限一致——存超过注入量的部分是纯浪费 */
+/** 单会话材料正文总量上限。与注入上限一致——旧常量保留供兼容提示；保存不再按此值截断 */
 export const MAX_TOTAL_TEXT = 40000
 
 /** 客户端生成的会话 id：labor-<时间戳>-<随机串>，限制字符集与长度以防异常键 */
@@ -35,7 +40,7 @@ function prune() {
 }
 
 /**
- * 把本轮解析出的材料并入会话材料集，返回**合并后**的完整材料（已按总量上限裁剪）。
+ * 把本轮解析出的材料并入会话材料集，返回**合并后**的完整材料（保留全文）。
  *
  * 同名材料视为更新（用户重新上传了同一份文件的修订版），而不是追加重复项。
  * 返回合并结果而非仅本轮，是为了让追问轮也能拿到前几轮上传的材料。
@@ -48,10 +53,10 @@ export function mergeMaterials(conversationId, materials = []) {
   const id = normalizeConversationId(conversationId)
   const incoming = (Array.isArray(materials) ? materials : [])
     .filter((item) => item && typeof item.text === 'string' && item.text.trim())
-    .map((item) => ({ name: String(item.name || '未命名材料'), text: item.text }))
+    .map((item) => ({ ...item, name: String(item.name || '未命名材料'), text: item.text }))
 
   // 无有效会话 id 时退化为"仅本轮"，不落存储——避免把材料挂到一个无法再取回的键上
-  if (!id) return { materials: capTotal(incoming), truncated: totalOf(incoming) > MAX_TOTAL_TEXT }
+  if (!id) return { materials: capTotal(incoming), truncated: false }
 
   prune()
   const existing = conversations.get(id)?.materials || []
@@ -63,7 +68,7 @@ export function mergeMaterials(conversationId, materials = []) {
   }
 
   const capped = capTotal(merged)
-  const truncated = totalOf(merged) > MAX_TOTAL_TEXT
+  const truncated = false
   conversations.set(id, { materials: capped, updatedAt: Date.now() })
   return { materials: capped, truncated }
 }
@@ -86,14 +91,8 @@ export function clearMaterials(conversationId) {
   if (id) conversations.delete(id)
 }
 
-const totalOf = (materials) => materials.reduce((sum, item) => sum + item.text.length, 0)
 
-/** 超总量时按比例裁剪，保留每份材料的开头（与单轮附件截断语义一致）。 */
-function capTotal(materials) {
-  const total = totalOf(materials)
-  if (total <= MAX_TOTAL_TEXT) return materials
-  const ratio = MAX_TOTAL_TEXT / total
-  return materials.map((item) => ({ ...item, text: item.text.slice(0, Math.floor(item.text.length * ratio)) }))
-}
+/** 保留完整原文；模型读取预算在材料选择阶段控制。 */
+function capTotal(materials) { return materials }
 
 export const getMaterialStoreStatus = () => ({ conversations: conversations.size, maxTotalText: MAX_TOTAL_TEXT })

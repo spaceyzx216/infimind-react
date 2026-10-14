@@ -1,0 +1,298 @@
+{
+  "syntheticOnly": true,
+  "annotationStatus": "assistant-authored-frozen-not-independent-gold",
+  "scope": "Reference snippet ranking on fabricated rules; no claim about legal validity or body-conflict recall. Same-author evaluation, not blind testing.",
+  "documents": [
+    {
+      "fileId": "arrival",
+      "fileName": "办公室考勤",
+      "text": "第1章 办公室考勤\n第一条 办公室人员每工作日上午九时到岗，开始工作；不适用于外勤人员。"
+    },
+    {
+      "fileId": "field",
+      "fileName": "外勤工时",
+      "text": "第2章 外勤工时\n第一条 外勤人员按出差任务安排签到，办公室上午九时到岗要求不适用于外勤。"
+    },
+    {
+      "fileId": "pay",
+      "fileName": "每月发薪",
+      "text": "第3章 每月发薪\n第一条 固定月薪在次月十五日发放至员工本人银行卡；绩效奖金另行核算。"
+    },
+    {
+      "fileId": "bonus",
+      "fileName": "绩效奖金",
+      "text": "第4章 绩效奖金\n第一条 绩效奖金按季度考核结果核算；月薪付款日期不决定季度奖励结算日。"
+    },
+    {
+      "fileId": "absence",
+      "fileName": "旷工处理",
+      "text": "第5章 旷工处理\n第一条 无正当理由未出勤须先核实记录和原因，再按违纪情节处理。"
+    },
+    {
+      "fileId": "correction",
+      "fileName": "忘打卡补正",
+      "text": "第6章 忘打卡补正\n第一条 忘打卡人员可提交实际出勤证明更正考勤记录，不自动认定旷工。"
+    },
+    {
+      "fileId": "leave",
+      "fileName": "病假申请",
+      "text": "第7章 病假申请\n第一条 因疾病不能出勤的员工，提交诊疗证明和病假申请，急诊后可补交。"
+    },
+    {
+      "fileId": "holiday",
+      "fileName": "法定节日工作",
+      "text": "第8章 法定节日工作\n第一条 标准工时员工法定节假日工作须另行核算加班工资；补休不替代应付工资。"
+    },
+    {
+      "fileId": "weekend",
+      "fileName": "周末工作",
+      "text": "第9章 周末工作\n第一条 标准工时员工休息日工作，安排补休；无法安排的按适用要求核算加班工资。"
+    },
+    {
+      "fileId": "weekday",
+      "fileName": "工作日延时",
+      "text": "第10章 工作日延时\n第一条 标准工时员工工作日延长工时须核算加班工资；与休息日及法定节日分别处理。"
+    },
+    {
+      "fileId": "asset",
+      "fileName": "办公物品",
+      "text": "第11章 办公物品\n第一条 员工未经批准不得外借办公设备；发生损坏须核实原因和实际损失，处罚另行判断。"
+    },
+    {
+      "fileId": "visitor",
+      "fileName": "来访登记",
+      "text": "第12章 来访登记\n第一条 供应商和访客在前台登记并由接待人员陪同；不属于员工考勤记录。"
+    },
+    {
+      "fileId": "ability",
+      "fileName": "岗位能力",
+      "text": "第13章 岗位能力\n第一条 绩效不达岗位要求时，评估培训或调岗后的履职表现，不直接归入违纪解除。"
+    },
+    {
+      "fileId": "discipline",
+      "fileName": "违纪调查",
+      "text": "第14章 违纪调查\n第一条 违规事项须调查事实、听取员工说明，结合情节审查处分依据。"
+    },
+    {
+      "fileId": "privacy",
+      "fileName": "个人信息",
+      "text": "第15章 个人信息\n第一条 收集员工信息须说明用途和范围，不收集与工作无关的个人生活数据。"
+    },
+    {
+      "fileId": "secret",
+      "fileName": "商业秘密",
+      "text": "第16章 商业秘密\n第一条 客户资料不得擅自提供给外部人员，保密义务与竞业限制分别约定。"
+    },
+    {
+      "fileId": "notice",
+      "fileName": "制度告知",
+      "text": "第17章 制度告知\n第一条 修订后的制度向适用员工公示或告知，留存对应版本和知悉记录。"
+    },
+    {
+      "fileId": "discussion",
+      "fileName": "制度协商",
+      "text": "第18章 制度协商\n第一条 涉及员工切身利益的规章制定或修订，履行适用的讨论和协商程序。"
+    },
+    {
+      "fileId": "termination",
+      "fileName": "普通辞职",
+      "text": "第19章 普通辞职\n第一条 普通员工辞职按适用要求提前通知并办理交接，不设通用离职违约金。"
+    },
+    {
+      "fileId": "competition",
+      "fileName": "竞业限制",
+      "text": "第20章 竞业限制\n第一条 竞业限制仅针对符合条件人员另行约定，范围、期限及补偿须核对。"
+    }
+  ],
+  "queries": [
+    {
+      "id": "D01",
+      "group": "direct",
+      "text": "办公室员工每天几点到岗？",
+      "goldDocumentIds": [
+        "arrival"
+      ]
+    },
+    {
+      "id": "D02",
+      "group": "direct",
+      "text": "月薪的发薪日是哪天？",
+      "goldDocumentIds": [
+        "pay"
+      ]
+    },
+    {
+      "id": "D03",
+      "group": "direct",
+      "text": "忘打卡怎么提交实际出勤证明？",
+      "goldDocumentIds": [
+        "correction"
+      ]
+    },
+    {
+      "id": "D04",
+      "group": "direct",
+      "text": "病假申请需要什么材料？",
+      "goldDocumentIds": [
+        "leave"
+      ]
+    },
+    {
+      "id": "D05",
+      "group": "direct",
+      "text": "标准工时法定节假日工作，补休能代替加班工资吗？",
+      "goldDocumentIds": [
+        "holiday"
+      ]
+    },
+    {
+      "id": "D06",
+      "group": "direct",
+      "text": "规章制度修改后的公示告知怎么留痕？",
+      "goldDocumentIds": [
+        "notice"
+      ]
+    },
+    {
+      "id": "S01",
+      "group": "semantic",
+      "text": "坐班同事每日什么时候报到开始上岗？",
+      "goldDocumentIds": [
+        "arrival"
+      ]
+    },
+    {
+      "id": "S02",
+      "group": "semantic",
+      "text": "固定收入每个月几号到账，酬劳结算看哪里？",
+      "goldDocumentIds": [
+        "pay"
+      ]
+    },
+    {
+      "id": "S03",
+      "group": "semantic",
+      "text": "门禁记录遗漏，但当天确实来公司干活，怎么纠正？",
+      "goldDocumentIds": [
+        "correction"
+      ]
+    },
+    {
+      "id": "S04",
+      "group": "semantic",
+      "text": "身体不舒服暂时来不了公司，要交什么手续？",
+      "goldDocumentIds": [
+        "leave"
+      ]
+    },
+    {
+      "id": "S05",
+      "group": "semantic",
+      "text": "总是做不好岗位工作，是否需要先辅导或者换岗？",
+      "goldDocumentIds": [
+        "ability"
+      ]
+    },
+    {
+      "id": "S06",
+      "group": "semantic",
+      "text": "把客人的业务资料发给朋友，应该查哪个规定？",
+      "goldDocumentIds": [
+        "secret"
+      ]
+    },
+    {
+      "id": "S07",
+      "group": "semantic",
+      "text": "公司要改大家的工作规矩，是否需要一起商量？",
+      "goldDocumentIds": [
+        "discussion"
+      ]
+    },
+    {
+      "id": "S08",
+      "group": "semantic",
+      "text": "员工另找工作离开企业，交接和提前说一声怎么规定？",
+      "goldDocumentIds": [
+        "termination"
+      ]
+    },
+    {
+      "id": "C01",
+      "group": "conditions",
+      "text": "跑客户的外勤同事是否也必须每天九点到办公室？",
+      "goldDocumentIds": [
+        "arrival",
+        "field"
+      ]
+    },
+    {
+      "id": "C02",
+      "group": "conditions",
+      "text": "供应商前台签到是否能作为员工出勤记录？",
+      "goldDocumentIds": [
+        "visitor"
+      ]
+    },
+    {
+      "id": "C03",
+      "group": "conditions",
+      "text": "绩效奖金付款日和固定月薪发放日是一回事吗？",
+      "goldDocumentIds": [
+        "pay",
+        "bonus"
+      ]
+    },
+    {
+      "id": "C04",
+      "group": "conditions",
+      "text": "不能胜任工作与违纪处分，应当分别查哪些规则？",
+      "goldDocumentIds": [
+        "ability",
+        "discipline"
+      ]
+    },
+    {
+      "id": "C05",
+      "group": "conditions",
+      "text": "周末安排工作和工作日延时分别怎么处理？",
+      "goldDocumentIds": [
+        "weekend",
+        "weekday"
+      ]
+    },
+    {
+      "id": "C06",
+      "group": "conditions",
+      "text": "商业秘密保密与离职后竞业限制应否分别约定？",
+      "goldDocumentIds": [
+        "secret",
+        "competition"
+      ]
+    },
+    {
+      "id": "N01",
+      "group": "no-answer",
+      "text": "食堂早餐价格是多少？",
+      "goldDocumentIds": []
+    },
+    {
+      "id": "N02",
+      "group": "no-answer",
+      "text": "今年部门旅游去哪个城市？",
+      "goldDocumentIds": []
+    },
+    {
+      "id": "N03",
+      "group": "no-answer",
+      "text": "公司停车位怎么收费？",
+      "goldDocumentIds": []
+    },
+    {
+      "id": "N04",
+      "group": "no-answer",
+      "text": "办公室墙面刷什么颜色？",
+      "goldDocumentIds": []
+    }
+  ]
+}

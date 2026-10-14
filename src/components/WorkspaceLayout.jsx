@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { CalendarHeart, FileCheck2, FilePenLine, FileSearch, Gavel, HandCoins, Home, LogOut, MessageCircle, PanelLeft, Settings2, UserRound, X } from 'lucide-react'
+import { BookOpen, CalendarHeart, ClipboardCheck, FilePenLine, HandCoins, Home, LogOut, MessageCircle, MessagesSquare, PanelLeft, Scale, ScanSearch, Settings2, UserRound, X } from 'lucide-react'
 import { useAuth } from './AuthProvider'
 import { WorkspaceContext } from './WorkspaceContext'
 import WorkspaceConversationMenu from './WorkspaceConversationMenu'
@@ -14,11 +14,14 @@ import './WorkspaceLayout.css'
 import './WorkspaceTheme.css'
 
 const tools = [
-  { label: '用工咨询', icon: MessageCircle, path: '/labor-consult', aliases: ['/tools/labor-consult'] },
-  { label: '商业合同审查', icon: FileSearch, path: '/contract-rewrite', aliases: ['/tools/contract-review'] },
+  // 图标按“功能动作”选，避免四个“文件 + 小标记”图标在 20px 下难以区分：
+  // 咨询=多轮对话气泡、审查=逐条排查、起草=文件+笔、分析=核对清单、仲裁=争议裁决。
+  { label: '用工咨询', icon: MessagesSquare, path: '/labor-consult', aliases: ['/tools/labor-consult'] },
+  { label: '商业合同审查', icon: ScanSearch, path: '/contract-rewrite', aliases: ['/tools/contract-review'] },
   { label: '商业合同起草', icon: FilePenLine, path: '/contract-draft', aliases: ['/tools/contract-draft'] },
-  { label: '劳动合同分析', icon: FileCheck2, path: '/tools/labor-contract', aliases: [] },
-  { label: '劳动仲裁答辩', icon: Gavel, path: '/tools/arbitration', aliases: [] },
+  { label: '劳动合同分析', icon: ClipboardCheck, path: '/tools/labor-contract', aliases: [] },
+  { label: '劳动仲裁答辩', icon: Scale, path: '/tools/arbitration', aliases: [] },
+  { label: '员工手册诊断', icon: BookOpen, path: '/tools/handbook', aliases: [], defaultPinned: false },
   { label: '医疗期计算器', icon: CalendarHeart, path: '/tools/medical-calculator', aliases: [], defaultPinned: false, formOnly: true },
   { label: '养老保险测算', icon: HandCoins, path: '/tools/pension-calc1', aliases: ['/tools/pension-calc2'], defaultPinned: false, formOnly: true }
 ]

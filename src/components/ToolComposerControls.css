@@ -1,15 +1,24 @@
 .contract-chat .tool-composer-controls { gap: 12px; }
 .contract-chat .tool-composer-controls .tool-thinking-toggle { padding: 7px 10px; border-radius: 8px; color: #73737b; font-weight: 500; }
 .contract-chat .tool-composer-controls .tool-thinking-toggle.active { color: #124775; background: #eaf2fb; }
-.tool-context { position: relative; }
-.contract-chat .tool-context-trigger { gap: 6px; color: #808089; font-size: 12px; font-weight: 400; }
-.tool-context-ring { width: 18px; height: 18px; flex-shrink: 0; border-radius: 50%; background: conic-gradient(#7f9cb8 var(--context-progress), #e9e9ec 0); position: relative; }
-.tool-context-ring::after { content: ''; position: absolute; inset: 2px; border-radius: 50%; background: #fff; }
-.tool-context-popover { position: absolute; bottom: calc(100% + 18px); left: -10px; width: 340px; max-width: calc(100vw - 40px); padding: 20px; border: 1px solid #e5e5e9; border-radius: 18px; background: #fff; box-shadow: 0 10px 36px rgb(0 0 0 / 9%); color: #555560; z-index: 5; }
-.tool-context-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 15px; }
-.tool-context-heading strong { color: #19191d; }
-.tool-context-heading small { font-size: 13px; color: #909099; }
-.tool-context-track { height: 6px; overflow: hidden; margin: 16px 0; border-radius: 4px; background: #ececef; }
-.tool-context-track span { display: block; height: 100%; background: #8ba6be; }
-.tool-context-popover p { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid #f0f0f2; color: #9999a1; font-size: 12px; line-height: 1.65; }
-@media (max-width: 760px) { .tool-context-popover { left: -140px; width: 300px; } }
+.tool-context { position: relative; --context-accent: var(--fafee-brand, #fd7002); }
+.tool-context[data-space="filling"] { --context-accent: #b58328; }
+.tool-context[data-space="near-limit"] { --context-accent: #b96725; }
+.contract-chat .tool-context-trigger { display: inline-flex; align-items: center; gap: 6px; color: var(--fafee-ink-subtle, #8a8178); font-size: 12px; font-weight: 400; }
+.tool-context-ring { width: 18px; height: 18px; flex-shrink: 0; border-radius: 50%; background: conic-gradient(var(--context-accent) var(--context-progress), var(--fafee-fill, #efebe5) 0); position: relative; }
+.tool-context-ring::after { content: ''; position: absolute; inset: 2px; border-radius: 50%; background: var(--fafee-surface, #fff); }
+.tool-context-popover { position: absolute; bottom: calc(100% + 18px); left: -10px; width: 286px; max-width: calc(100vw - 40px); box-sizing: border-box; display: flex; align-items: center; gap: 16px; padding: 22px 20px; border: 1px solid var(--fafee-border, #dfdcd6); border-radius: 14px; background: var(--fafee-surface, #fff); box-shadow: 0 6px 20px rgba(var(--fafee-shadow-rgb, 87, 63, 38), .07); color: var(--fafee-ink, #272b30); z-index: 5; animation: context-space-appear 140ms ease-out; }
+.tool-context-popover[hidden] { display: none; }
+/* Bridge the existing gap so moving onto the card keeps the preview open. */
+.tool-context-popover::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 18px; }
+.tool-context-illustration { position: relative; display: grid; place-items: center; width: 48px; height: 48px; flex: 0 0 48px; color: var(--fafee-ink-subtle, #8a8178); }
+.tool-context-ring-large { position: absolute; inset: 0; width: 48px; height: 48px; }
+.tool-context-ring-large::after { inset: 4px; }
+.tool-context-illustration > svg { position: relative; z-index: 1; }
+.tool-context-copy { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.tool-context-copy strong { color: var(--fafee-ink, #272b30); font-size: 14px; line-height: 1.5; font-weight: 550; }
+.tool-context-copy > span { color: var(--fafee-ink-muted, #6f6861); font-size: 12px; line-height: 1.6; }
+.tool-context[data-space="near-limit"] .tool-context-trigger { color: var(--context-accent); }
+@keyframes context-space-appear { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 760px) { .tool-context-popover { left: -140px; width: min(286px, calc(100vw - 40px)); } }
+@media (prefers-reduced-motion: reduce) { .tool-context-popover { animation: none; } }

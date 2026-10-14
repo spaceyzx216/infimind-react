@@ -1,0 +1,42 @@
+[
+  {
+    "name": "R21准点安排.txt",
+    "sha256": "a89924d928488e9603f5526a06d27af4b084c4d6f0f3cf8363cede45beabd151"
+  },
+  {
+    "name": "R21到岗安排.txt",
+    "sha256": "9efdd50a19a42a3786cd0aaead10a1093ec4983ea0b05cfc4c462f26c4932fbe"
+  },
+  {
+    "name": "R22发薪安排.txt",
+    "sha256": "35e445e01aef76dee1bd8aba3c7f42c8a4f1dadda36eb02a4d2641aaeacc91fe"
+  },
+  {
+    "name": "R22薪金安排.txt",
+    "sha256": "ced4399f341e5c527304088a52ba8de42b2daebcb231867e17ffcfa2809b5de1"
+  },
+  {
+    "name": "R23考勤时间.txt",
+    "sha256": "99214cbf1df642d2a072b54a2d70d5a787b91fc4ee511f6d80f84925e76052e0"
+  },
+  {
+    "name": "R23考勤设备.txt",
+    "sha256": "4abc1afb6780523ced78f1afbaa7f4d083093d5a1f83b1c3bc4c649188fdd255"
+  },
+  {
+    "name": "R24到岗总则.txt",
+    "sha256": "caf6f6358f0e9bb22e283ea9b00d166b986d927d606c318bdde4e61c2e07e44b"
+  },
+  {
+    "name": "R24轮班安排.txt",
+    "sha256": "1b808c31eb4d3a0d43229dafd753480b68974d1dc4ea281050947420eeef77ce"
+  },
+  {
+    "name": "R25节假日安排.txt",
+    "sha256": "319a7b61b6df0c2cedbd433690c4aa8119d0733c05dd75358666df906e66eb8d"
+  },
+  {
+    "name": "R26考勤记录更正.txt",
+    "sha256": "bdf4cddd4106e667cb0dc6a0865e1790f7405e532bd29d4163d1a5e9a873534c"
+  }
+]

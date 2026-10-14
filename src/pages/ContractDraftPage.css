@@ -78,3 +78,9 @@
 .draft-task-modal footer button[type="submit"] { color: #fff; background: #202024; }
 .draft-task-modal footer button:hover { filter: brightness(.96); }
 @media (max-width: 760px) { .draft-history-delete { opacity: 1; }.draft-task-modal-backdrop { align-items: end; padding: 0; }.draft-task-modal { width: 100%; border-radius: 18px 18px 0 0; }.draft-balance-popover { position: fixed; right: 15px; bottom: 80px; left: 15px; } }
+
+/* Keep the growing draft readable before the confirmation panel is ready. */
+.contract-draft .draft-document-streaming { padding-right: 0; }
+.contract-draft .draft-stream-status { display: flex; align-items: center; gap: 7px; margin: 0 auto 24px; max-width: 980px; color: var(--draft-muted); font-size: 14px; line-height: 1.6; }
+.contract-draft .draft-document-streaming h1 { white-space: normal; overflow-wrap: anywhere; }
+.contract-draft .document-header button:disabled { opacity: .45; cursor: not-allowed; }

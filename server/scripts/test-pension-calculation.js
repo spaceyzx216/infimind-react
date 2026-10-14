@@ -230,7 +230,7 @@ check('简表两身份同条件待遇相同，全部缴费与账户入账分开'
   const female = calculatePensionEstimate(simpleFixture({ gender: 'female' }))
   assert.deepEqual(female.components, employee.components)
 })
-check('简表仍拦截非法/缺项/逆年龄/零年限，有视同和不足年限不凑合计', () => {
+check('简表仍拦截非法/缺项/逆年龄/零年限，不足年限不合计', () => {
   for (const overrides of [{ currentAge: '' }, { gender: 'other' }, { accountBalance: -1 },
     { currentAge: '61' }, { actualYears: '60' }, { wageGrowth: '15' }, { accountInterest: '11' },
     { pastAvgIndex: Infinity }, { referenceYear: 'NaN' }, { retirementAge: '60.5' },
@@ -239,11 +239,58 @@ check('简表仍拦截非法/缺项/逆年龄/零年限，有视同和不足年�
     assert.throws(() => calculatePensionEstimate(simpleFixture(overrides)), PensionInputError)
   }
   assert.equal(calculatePensionEstimate(simpleFixture({ actualYears: '5' })).components.total, null)
-  const deemed = calculatePensionEstimate(simpleFixture({ deemedYears: '2' }))
-  assert.equal(deemed.components.basic, null)
-  assert.equal(deemed.components.total, null)
-  assert.equal(deemed.components.personal, 702.73)
-  assert.ok(deemed.pending[0].includes('视同'))
+})
+check('视同2年按小程序假设独立手算，分项合计明确含假设过渡项', () => {
+  const employee = calculatePensionEstimate(simpleFixture({ deemedYears: '2' }))
+  assert.deepEqual(employee.components, { basic: 1760, personal: 702.73, transitional: 192, total: 2654.73 })
+  assert.equal(employee.assumedParameters.deemedIndex, 1)
+  assert.equal(employee.assumedParameters.transitionRate, 1.2)
+  assert.equal(employee.status, 'assumed')
+  assert.deepEqual(employee.pending, [])
+  assert.ok(employee.assumptions.some((text) => text.includes('小程序假设')))
+  const flexible = calculatePensionEstimate(simpleFixture({ toolId: 'pension-calc2', deemedYears: '2' }))
+  assert.deepEqual(flexible.components, { basic: 1760, personal: 702.73, transitional: 224, total: 2686.73 })
+  assert.equal(flexible.assumedParameters.deemedIndex, 1)
+  assert.equal(flexible.assumedParameters.transitionRate, 1.4)
+  assert.equal(flexible.comparison.find((row) => row.grade === 100).total, 2686.73)
+  assert.equal(flexible.comparison.find((row) => row.grade === 60).total, 2644.56)
+  assert.equal(employee.projection.accountBalance, 97680)
+  assert.equal(flexible.projection.accountBalance, 97680)
+  assert.equal(calculatePensionEstimate(simpleFixture()).assumedParameters, null)
+})
+check('非单位历史指数时两身份的视同假设不同，不跨身份复用', () => {
+  // Employee: index=(21×0.8+1)/22; basic1592, transitional155.35.
+  // Flexible: index=(19×0.8+2×1+1)/22; basic1608, transitional185.31.
+  const employee = calculatePensionEstimate(simpleFixture({ deemedYears: '2', pastAvgIndex: '80' }))
+  assert.equal(employee.assumedParameters.deemedIndex, 0.8)
+  assert.deepEqual(employee.components, { basic: 1592, personal: 702.73, transitional: 155.35, total: 2450.08 })
+  const flexible = calculatePensionEstimate(simpleFixture({ toolId: 'pension-calc2', deemedYears: '2', pastAvgIndex: '80' }))
+  assert.equal(flexible.assumedParameters.deemedIndex, 1)
+  assert.deepEqual(flexible.components, { basic: 1608, personal: 702.73, transitional: 185.31, total: 2496.04 })
+})
+check('视同假设保留年月精度，缺少计发月数或不足年限仍不合计', () => {
+  const extra = calculatePensionEstimate(simpleFixture({ deemedExtraMonths: '6' }))
+  assert.deepEqual(extra.components, { basic: 1640, personal: 702.73, transitional: 48, total: 2390.73 })
+  const fractional = calculatePensionEstimate(simpleFixture({ deemedYears: '2', retirementAgeExtraMonths: '1' }))
+  assert.deepEqual(fractional.components, { basic: 1766.67, personal: null, transitional: 192, total: null })
+  assert.equal(fractional.status, 'partial')
+  assert.ok(fractional.pending.some((text) => text.includes('计发月数')))
+  assert.equal(fractional.assumedParameters.transitionRate, 1.2)
+  const short = calculatePensionEstimate(simpleFixture({ actualYears: '5', deemedYears: '2' }))
+  assert.equal(short.components.basic, 640)
+  assert.equal(short.components.transitional, 192)
+  assert.equal(short.components.total, null)
+  assert.ok(short.pending.some((text) => text.includes('还差')))
+})
+check('企业视同假设依赖历史指数，缺失时阻止计算；灵活就业无实际缴费可留空', () => {
+  const onlyDeemed = simpleFixture({ actualYears: '0', deemedYears: '19', pastAvgIndex: '' })
+  const invalid = validatePensionEstimate(onlyDeemed)
+  assert.equal(invalid.valid, false)
+  assert.ok(invalid.errors.some((error) => error.field === 'pastAvgIndex'))
+  assert.throws(() => calculatePensionEstimate(onlyDeemed), PensionInputError)
+  const flexible = calculatePensionEstimate({ ...onlyDeemed, toolId: 'pension-calc2' })
+  assert.equal(flexible.assumedParameters.deemedIndex, 1)
+  assert.deepEqual(flexible.components, { basic: 1600, personal: 702.73, transitional: 2128, total: 4430.73 })
 })
 check('简表未来指数随不同增长率变化，退休年龄查表不固定139', () => {
   const increased = calculatePensionEstimate(simpleFixture({ futureWageGrowth: '10' }))
@@ -297,19 +344,27 @@ check('非整岁退休不取整或插值；有核定计发月数可算，未知�
   assert.equal(known.components.total, 2341.74)
   assert.equal(known.pending.length, 0)
 })
-check('仅有缴费余月不能省略历史指数，视同余月也不凑合计；拒绝非法余月与逆年龄', () => {
+check('非整岁允许补填社保确认的小数计发月数，不自行插值', () => {
+  // Fictional confirmed divisor: this test does not establish a regional policy.
+  const result = calculatePensionEstimate(simpleFixture({ retirementAgeExtraMonths: '1', paymentDivisor: '138.4' }))
+  assert.equal(result.paymentDivisor, 138.4)
+  assert.equal(result.projection.accountBalance, 98320)
+  assert.equal(result.components.basic, 1606.67)
+  assert.equal(result.components.personal, 710.40)
+  assert.equal(result.components.total, 2317.07)
+  assert.equal(result.pending.length, 0)
+})
+check('仅有缴费余月不能省略历史指数；拒绝非法余月与逆年龄', () => {
   for (const overrides of [{ currentAgeExtraMonths: '' }, { actualExtraMonths: '12' },
     { deemedExtraMonths: '-1' }, { retirementAgeExtraMonths: '1.5' }, { recordMonth: '' },
     { recordMonth: '2026-13' }, { recordMonth: '2023-12' }, { currentAge: '60', currentAgeExtraMonths: '3' },
     { currentAge: '70', currentAgeExtraMonths: '1', retirementAge: '70' },
     { actualYears: '0', actualExtraMonths: '6', pastAvgIndex: '' },
-    { retirementAgeExtraMonths: '3', paymentDivisor: '139.5' }]) {
+    { retirementAgeExtraMonths: '3', paymentDivisor: 'not-a-number' },
+    { retirementAgeExtraMonths: '3', paymentDivisor: '0' },
+    { retirementAgeExtraMonths: '3', paymentDivisor: '601' }]) {
     assert.equal(validatePensionEstimate(simpleFixture(overrides)).valid, false)
   }
-  const deemed = calculatePensionEstimate(simpleFixture({ deemedExtraMonths: '6' }))
-  assert.equal(deemed.components.basic, null)
-  assert.equal(deemed.components.total, null)
-  assert.ok(deemed.pending.some((text) => text.includes('视同')))
 })
 const storageMap = new Map()
 const storage = { getItem: (key) => storageMap.get(key) ?? null, setItem: (key, value) => storageMap.set(key, value) }

@@ -579,7 +579,7 @@ export function createTaskService(database, {
     return getTask(taskId, null, true)
   })
 
-  const failTask = database.transaction((taskId, error, { code = 'task_failed' } = {}) => {
+  const failTask = database.transaction((taskId, error, { code = 'task_failed', result = null } = {}) => {
     const current = selectTask.get(taskId)
     if (!current) return null
     // 取消或终态已经赢得状态竞争时，迟到的模型/队列异常不能覆盖它。
@@ -589,14 +589,28 @@ export function createTaskService(database, {
     const finishedAt = now()
     const summary = String(error?.message || error || '任务处理失败').slice(0, 1000)
     const updated = database.prepare(`
-      UPDATE tasks SET status = ?, finished_at = ?, error_code = ?, error_summary = ?, next_run_at = NULL
+      UPDATE tasks SET status = ?, finished_at = ?, error_code = ?, error_summary = ?, next_run_at = NULL,
+        result_json = COALESCE(?, result_json)
       WHERE id = ? AND status NOT IN (?, ?, ?) AND cancel_requested_at IS NULL
-    `).run(TASK_STATUS.FAILED, finishedAt, code, summary, taskId, TASK_STATUS.SUCCEEDED, TASK_STATUS.FAILED, TASK_STATUS.CANCELLED)
+    `).run(TASK_STATUS.FAILED, finishedAt, code, summary, result ? safeJson(result) : null, taskId, TASK_STATUS.SUCCEEDED, TASK_STATUS.FAILED, TASK_STATUS.CANCELLED)
     if (updated.changes !== 1) return summarizeTask(selectTask.get(taskId))
     clearLaborTransientPayloadsTx(taskId)
     appendEventTx(taskId, 'error', { status: TASK_STATUS.FAILED, code, message: summary })
-    appendEventTx(taskId, 'done', { status: TASK_STATUS.FAILED, resultAvailable: false })
+    appendEventTx(taskId, 'done', { status: TASK_STATUS.FAILED, resultAvailable: Boolean(result || current.result_json) })
     return getTask(taskId, null, true)
+  })
+
+  const resumeFailedReview = database.transaction((taskId, userId) => {
+    const current = selectUserTask.get(taskId, userId)
+    if (!current || current.product_id !== 'contract-review') return null
+    if (current.status !== TASK_STATUS.FAILED || getActiveTaskByThread(userId, current.product_id, current.thread_id || taskId)) {
+      throw Object.assign(new Error('当前对话已有审查在运行，请等待完成后继续。'), { code: 'review_resume_busy' })
+    }
+    database.prepare(`UPDATE tasks SET status = ?, finished_at = NULL, error_code = NULL, error_summary = NULL,
+      next_run_at = NULL, max_attempts = MAX(max_attempts, attempt_count + 1) WHERE id = ? AND status = ?`)
+      .run(TASK_STATUS.QUEUED, taskId, TASK_STATUS.FAILED)
+    appendEventTx(taskId, 'task.resumed', { status: TASK_STATUS.QUEUED, message: '继续核对尚未完成的内容，复用已完成进度。' })
+    return getTask(taskId, userId, true)
   })
 
   const retryTask = database.transaction((taskId, error, delayMs) => {
@@ -689,6 +703,7 @@ export function createTaskService(database, {
     getLaborSourceDocuments,
     completeTask,
     failTask,
+    resumeFailedReview,
     retryTask,
     requestCancel,
     markCancelled,

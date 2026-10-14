@@ -99,9 +99,40 @@
 .compact-anchor { margin: 5px 0 0 !important; color: #8b817b; font-size: 12px !important; }
 .compact-preview { display: -webkit-box; margin: 6px 0 0 !important; overflow: hidden; color: #9e352d; font-size: 13px !important; font-weight: 550; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 
+/* === 批注人工编辑：每条批注都能就地改写成最终确认的意见 === */
+.annotation-actions { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.annotation-edit-button, .annotation-reset-button { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; color: #8a6a55; background: rgb(255 255 255 / 80%); border: 1px solid #f0dccd; border-radius: 7px; font: 12px inherit; cursor: pointer; }
+.annotation-edit-button:hover, .annotation-reset-button:hover { color: #b4552a; background: #fff; border-color: #e8c7ae; }
+.annotation-reset-button { color: #9a9a9e; border-color: #e6e6e8; }
+.annotation-edited-badge { padding: 2px 7px; color: #9e352d; background: #fdeee9; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.local-edit-card.annotation-edited { box-shadow: inset 3px 0 0 #e35f00, 0 2px 8px rgb(77 42 20 / 4%); }
+.compact-revision-card.annotation-edited { box-shadow: inset 3px 0 0 #e35f00; }
+.local-edit-suggestion > strong, .compact-preview, .local-edit-details p, .compact-revision-card details p { white-space: pre-wrap; word-break: break-word; }
+.annotation-edit-card { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px; padding: 12px 14px 12px 11px; color: #3a302a; background: #fffdfb; border: 1px solid #e9cdb6; border-radius: 10px; box-shadow: 0 6px 18px rgb(77 42 20 / 8%); }
+.annotation-edit-card.level-unrated { background: #fbfbfc; border-color: #dcdce0; }
+.annotation-edit-form { display: flex; min-width: 0; flex-direction: column; gap: 9px; }
+.annotation-edit-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 0; }
+.annotation-edit-head b { color: #8d3b2a; font-size: 13px; }
+.annotation-edit-head span { color: #a0938b; font-size: 11px; }
+.annotation-field { display: flex; flex-direction: column; gap: 4px; }
+.annotation-field > span { color: #8d776a; font-size: 11px; font-weight: 600; }
+.annotation-field input, .annotation-field select, .annotation-field textarea { width: 100%; padding: 7px 9px; color: #2f2a27; background: #fff; border: 1px solid #e6d8cd; border-radius: 8px; font: 13px/1.7 inherit; }
+.annotation-field textarea { resize: vertical; }
+.annotation-field input:focus, .annotation-field select:focus, .annotation-field textarea:focus { border-color: #e08a4c; outline: none; box-shadow: 0 0 0 3px rgb(224 138 76 / 14%); }
+.annotation-origin { margin: 0; padding: 7px 9px; color: #6f6159; background: #faf7f4; border-radius: 8px; font-size: 12px; line-height: 1.7; }
+.annotation-origin b { margin-right: 8px; color: #8d776a; }
+.annotation-edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.annotation-edit-actions button { padding: 6px 12px; color: #555; background: #f4f4f5; border: 0; border-radius: 8px; font: 13px inherit; cursor: pointer; }
+.annotation-edit-actions .annotation-primary { color: #fff; background: #d9622a; }
+.annotation-edit-actions .annotation-primary:hover { background: #c4551f; }
+.annotation-edit-actions .annotation-reset { color: #8a8a8f; background: transparent; }
+.annotation-edit-actions small { margin-left: auto; color: #b0aaa6; font-size: 11px; }
+.annotation-edit-status { display: inline-flex; align-items: center; }
+.annotation-edit-status button { padding: 5px 8px; color: #a3562c; background: #fdf3ec; border-radius: 999px; font-size: 12px; }
+.annotation-edit-status button:hover { background: #fbe8db; }
+
 /* 文档空状态：审核中或无修订时展示。 */
-.document-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; min-height: 320px; color: #b1b1b4; }
-.document-empty svg { color: #d4d4d6; }
+.document-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; min-height: 320px; color: #b1b1b4; }.document-empty svg { color: #d4d4d6; }
 .document-empty p { margin: 0; font-size: 15px; }
 
 /* 修订汇总条：文档末尾的统计提示。 */
@@ -116,6 +147,8 @@
   .revision-stack { margin-left: 8px; }
   .local-edit-card { grid-template-columns: 22px minmax(0, 1fr); padding-right: 10px; }
   .local-edit-suggestion { grid-template-columns: 1fr; gap: 2px; }
+  .annotation-edit-status { display: none; }
+  .annotation-edit-actions small { display: none; }
 }
 
 /* Markdown rendering for assistant messages. */
@@ -202,3 +235,18 @@
 .contract-chat .history-list:not(.task-list) > button { min-height: 56px; }
 .contract-chat .composer-wrap { flex-direction: column; align-items: center; gap: 8px; left: 0; }
 @media (max-width: 760px) { .contract-chat .chat-sidebar { display: none; } }
+
+/* 合同审查沿用用工咨询的正文宽度、字号和标题层级。 */
+.contract-review:not(.document-expanded) .conversation-inner { width: min(820px, calc(100% - 56px)); }
+.contract-review .assistant-content { font-size: 15px; line-height: 1.85; color: #232326; }
+.contract-review .assistant-content p { font-size: inherit; line-height: inherit; }
+.contract-review .assistant-content h1, .contract-review .assistant-content h2 { font-size: 17px; line-height: 1.45; }
+.contract-review .assistant-content h3 { margin: 18px 0 8px; font-size: 15.5px; }
+.contract-review .assistant-content h4 { font-size: 15px; }
+.contract-review .assistant-content ul, .contract-review .assistant-content ol { padding-left: 22px; }
+.contract-review .assistant-content table { font-size: 13.5px; }
+.contract-review .assistant-content th, .contract-review .assistant-content td { padding: 8px 10px; }
+.contract-review .finding-risk p { margin: 0; font-size: inherit; line-height: inherit; }
+@media (max-width: 760px) {
+  .contract-review:not(.document-expanded) .conversation-inner { width: calc(100% - 30px); }
+}

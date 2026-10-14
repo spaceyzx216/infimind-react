@@ -1,3 +1,4 @@
+import { assertDocumentLength } from '../services/document-materials.js'
 import { readdir, readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -156,9 +157,9 @@ export async function runLaborArbitration({
       try {
         const parsed = await extractText(file, { signal })
         ensureActive()
-        const text = safeText(parsed?.text, MAX_SAVED_TEXT)
+        const text = assertDocumentLength(String(parsed?.text || '')).trim()
         const document = { fileName: file.originalname || '上传文件', fileId: file.id, sourceTaskId: file.sourceTaskId || task?.id, text, truncated: String(parsed?.text || '').trim().length > text.length,
-          pageCount: parsed?.pageCount ?? null, parseWarnings: parsed?.metadata?.warnings || [] }
+          pageCount: parsed?.pageCount ?? null, parseMetadata: parsed?.metadata, parseWarnings: parsed?.metadata?.warnings || [] }
         warnings.push(...document.parseWarnings.map((warning) => `${document.fileName}：${warning}`))
         if (String(parsed?.text || '').trim().length > text.length) warnings.push(`${document.fileName}正文过长，解析缓存未保留全部内容；请补充关键原文。`)
         if (text) {
@@ -202,7 +203,7 @@ export async function runLaborArbitration({
 
   const action = ['analyze', 'followup', 'draft'].includes(input.action) ? input.action : 'analyze'
   // Thinking tokens and the final JSON share the completion allowance.
-  const outputReserve = input.mode === 'fast' ? OUTPUT_RESERVE_TOKENS : OUTPUT_RESERVE_TOKENS * 2
+  const outputReserve = OUTPUT_RESERVE_TOKENS
   const userMessage = safeText(input.message, 16000)
   const sourceRequests = extractExplicitArbitrationRequests([userMessage, ...documents.map((document) => document.text)].join('\n'))
   documents = selectArbitrationMaterialText(documents, userMessage, MAX_DOCUMENT_TEXT)

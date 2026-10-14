@@ -82,10 +82,22 @@ function LawCitation({ children }) {
   return <mark className="law-cite" title="法规引用，便于人工定位核对">{children}</mark>
 }
 
+/**
+ * 表格：包一层可横向滚动的容器。
+ *
+ * 为什么必须包一层：模型输出的核对表格列数不受控（要素核查、条款对照都可能 4～6 列）。
+ * 直接渲染 `<table>` 时表格会按内容宽度撑破气泡，把整页顶出横向滚动条；
+ * 包一层 `overflow-x: auto` 后，窄屏只在表格内部滚动，页面布局不受影响。
+ * 样式在 MarkdownBody.css 中定义（不在这里内联，方便深色主题统一覆盖）。
+ */
+function MarkdownTable({ children, ...props }) {
+  return <div className="markdown-table-wrap"><table {...props}>{children}</table></div>
+}
+
 // 提到模块作用域：避免每次渲染都新建数组/对象，让 ReactMarkdown 拿到稳定引用
 const REMARK_PLUGINS = [remarkGfm]
 const REHYPE_PLUGINS = [rehypeLawCitations]
-const COMPONENTS = { lawcite: LawCitation }
+const COMPONENTS = { lawcite: LawCitation, table: MarkdownTable }
 
 const MarkdownBody = React.memo(function MarkdownBody({ content }) {
   return (

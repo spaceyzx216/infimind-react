@@ -1,10 +1,11 @@
 import SideChatEmptyState from '../components/SideChatEmptyState'
+import SidebarSearch from '../components/SidebarSearch.jsx'
 import './ContractRewritePage.css'
 import ToolComposerControls from '../components/ToolComposerControls'
 import { formatRelativeTime } from '../utils/relative-time.js'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
-import { ArrowRight, Brain, History, Menu, MessageCircle, PenLine, Plus, Send, Trash2, Zap } from 'lucide-react'
+import { ArrowRight, Brain, Menu, MessageCircle, PenLine, Plus, Send, Trash2, Zap } from 'lucide-react'
 import { useAuth } from '../components/AuthProvider'
 import './ToolConversationPage.css'
 import { useWorkspaceText, useWorkspaceLayout } from '../components/WorkspaceContext'
@@ -85,7 +86,7 @@ function ToolConversationWorkspace({ toolId, tool }) {
   return (
     <main className={`contract-chat prototype-chat ${sidebarCollapsed ? 'history-collapsed sidebar-collapsed' : ''}`}>
       <aside className="prototype-chat-sidebar chat-sidebar">
-        <label className="prototype-history-search sidebar-search"><History size={17} /><input name="history-search" autoComplete="off" value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder={t("搜索历史对话")} /><kbd>⌘ K</kbd></label>
+        <SidebarSearch className="prototype-history-search" name="history-search" value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder={t("搜索历史会话")} />
         <div className="prototype-brand"><img src="/logo.png" alt="" /><strong>{t("法飞飞")}</strong></div>
         <button className="prototype-new-chat" type="button" onClick={newConversation}><PenLine size={19} />{t("新对话")}</button>
         <p className="prototype-history-label">{tool.title}{t("· 历史对话")}</p>

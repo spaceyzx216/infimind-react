@@ -18,6 +18,7 @@ import { createLaborDispatchAnalysisWorkflow as makeDispatchWorkflow } from '../
 import { materializeAllLaborContractCases } from '../fixtures/labor-contract-analysis/cases.js'
 import { LABOR_CONTRACT_ANALYSIS_TOPICS } from '../prompts/labor-contract-analysis.js'
 import { LABOR_DISPATCH_ANALYSIS_TOPICS, LABOR_DISPATCH_FOLLOWUP_SYSTEM_PROMPT, buildLaborDispatchFollowupMessage } from '../prompts/labor-dispatch-analysis.js'
+import { LABOR_CONTRACT_COMPLETENESS_ELEMENTS } from '../prompts/labor-contract-analysis.js'
 
 const mockAuxiliary = ({ phase, userMessage }) => {
   if (phase === 'assessment') return { score: 94, conclusion: '建议核对试用期约定。', complete: true }
@@ -26,18 +27,31 @@ const mockAuxiliary = ({ phase, userMessage }) => {
   if (phase === 'final-check') return { conflicts: [], complete: true }
   return null
 }
+const syntheticStructureReport = [
+  '# 合同基础识别', '- 合同类型：劳动合同', '- 合同子类型：固定期限', '- 类型判定依据：合同标题为劳动合同，第一条约定合同期限。',
+  '- 交易角色与主体：', '  - 用人单位（甲方）：名称：合成公司', '  - 劳动者（乙方）：信息空白未填写',
+  '- 合同目的与标的：合成岗位与报酬约定。', '- 已识别附件/引用文件：', '  - 附件1：合成附件——已提供模板，内容空白',
+  '', '# 条款结构图', '按原文顺序列出：', '- 第一条｜合同期限｜期限一年，起止日期空白｜文本状态：空白',
+  '', '# 要素完整性核查', '- 合同期限：已约定（第一条）', '- 主体与授权：未约定（签署栏）',
+  ...LABOR_CONTRACT_COMPLETENESS_ELEMENTS.filter((name) => !['合同期限', '主体与授权'].includes(name)).map((name) => `- ${name}：待确认（全文未提及）`),
+  '', '# 文本一致性与待确认事项', '- 格式与编号：编号连续', '- 金额大小写：未发现异常', '- 日期：签署日期空白',
+  '- 主体称谓：称谓一致', '- 附件引用：附件1为模板未填写', '- 交叉条款冲突：未发现可直接指认的冲突。',
+  '', '待确认事项（需用户补充的交易事实）：', '- 补充合同起止日期。'
+].join('\n')
 const syntheticRewrite = async ({ findings }) => JSON.stringify({ revisions: findings.map((finding) => ({ findingId: finding.id,
   action: 'modify', rewrittenText: '双方依法明确本条事项及执行程序。', riskNote: '结合完整条款核对。' })) })
 // All tests use synthetic contracts and model responses; never send fixtures to the live provider.
 const createLaborContractAnalysisWorkflow = (options = {}) => makeAnalysisWorkflow({ ...options,
   rewrite: options.rewrite || syntheticRewrite,
   ...(options.generate ? { generate: async (request) => {
+    if (request.phase === 'structure') return { content: syntheticStructureReport, finishReason: 'stop' }
     const auxiliary = mockAuxiliary(request)
     if (auxiliary) return { content: JSON.stringify(auxiliary), finishReason: 'stop' }
     const value = await options.generate(request)
     return typeof value === 'string' ? { content: value, finishReason: 'stop' } : value
   } } : {}),
   ...(options.streamGenerate ? { streamGenerate: async function* (request) {
+    if (request.phase === 'structure') { yield { content: syntheticStructureReport, finishReason: 'stop' }; return }
     const auxiliary = mockAuxiliary(request)
     if (auxiliary) { yield { content: JSON.stringify(auxiliary), finishReason: 'stop' }; return }
     yield* options.streamGenerate(request)
@@ -192,6 +206,8 @@ const dispatchAnalysisWorkflow = createLaborDispatchAnalysisWorkflow({
   resolveStatus: (law) => resolveLawStatus(law, new Date('2026-09-26T00:00:00+08:00')),
   generate: async (request) => {
     dispatchModelSpy.push(request)
+    // 结构分析走 Markdown 流式输出，其余阶段仍是 JSON。
+    if (request.phase === 'structure') return { content: syntheticStructureReport, finishReason: 'stop' }
     return { content: JSON.stringify(sampleDispatchModelOutput), finishReason: 'stop' }
   }
 })
@@ -282,6 +298,21 @@ async function testDetailedLlmResponse() {
   }
 }
 
+async function testLongDocumentTraversal() {
+  const checkpoints = new Map(), submitted = []
+  const tail = '末尾工资支付日为每月十五日。'
+  const documents = [{ fileId: 'long-source', fileName: '虚构长劳动合同.txt', text: '普通条款仅供模型桩验证。\n'.repeat(900) + tail }]
+  const workflow = createLaborContractAnalysisWorkflow({ retrieveEvidence: async () => [], getLawCatalog: async () => [],
+    generate: async ({ userMessage }) => { submitted.push(userMessage); return JSON.stringify({ ...sampleModelOutput, findings: [] }) } })
+  await workflow({ task: { id: 'long-traversal', mode: 'fast' }, input: { action: 'analyze' }, sourceDocuments: documents,
+    checkpoint: async (key, result) => checkpoints.set(key, { result }), getCheckpoint: (key) => checkpoints.get(key) })
+  assert.ok(submitted.length > 1, '长合同分块进入实际模型调用入口')
+  assert.ok(submitted.some((body) => body.includes(tail)), '后半部分条款必须进入模型')
+  const coverage = checkpoints.get('material-coverage').result
+  assert.equal(coverage.checked.length, coverage.parsed)
+  assert.ok(coverage.checked.length > 1)
+}
+
 async function testReviewResumeAndMode() {
   const saved = new Map()
   const rounds = []
@@ -324,6 +355,9 @@ async function testReviewResumeAndMode() {
   assert.deepEqual(rounds, [1, 2, 2, 3], '自动恢复从未完成的第二轮继续，不跳过复审')
   assert.deepEqual(result.reviewRounds.map((item) => item.round), [1, 2, 3])
   assert.equal(result.findings.length, 2)
+  assert.match(result.firstRoundReport, /工资支付日未约定/)
+  assert.doesNotMatch(result.firstRoundReport, /每周休息安排需要核对/, '后续复核风险进入批注及完整报告，不混入第一轮正文')
+  assert.match(result.reviewReport, /每周休息安排需要核对/)
   assert.ok(result.revisions.length, '重用商业合同定位和局部修订组件所需数据')
   assert.deepEqual(rewriteSizes, [2, 1, 1], '修订输出截断时继续拆小批次，不丢弃其他问题')
   assert.equal(result.sourceDocuments[0].text, documents[0].text)
@@ -374,6 +408,12 @@ async function testStreamedAnalysisEvents() {
     < emitted.findIndex((item) => item.event === 'review.delta'), '审查开始先于首段模型输出')
   assert.equal(result.findings[0].location.status, 'found')
   assert.equal(result.reviewStoppedEarly, true)
+  const firstRoundEnd = emitted.findIndex((item) => item.event === 'review.round' && item.data.phase === 'end' && item.data.round === 1)
+  assert.ok(emitted.findIndex((item) => item.event === 'review.delta' && item.data.firstRoundReport) < firstRoundEnd,
+    '第一轮文字完成后再发出轮次完成事件')
+  assert.ok(emitted.filter((item) => item.event === 'review.delta').every((item) => item.data.round === 1 && item.data.replace),
+    '正文事件仅展示第一轮风险；第二、三轮只更新审查进度')
+  assert.equal(emitted.filter((item) => item.event === 'review.delta').at(-1).data.firstRoundReport, result.firstRoundReport)
   assert.ok(emitted.some((item) => item.event === 'analysis.result'))
 
   const retryEvents = []
@@ -527,6 +567,7 @@ async function testClassificationClarification() {
 
 try {
   await testClassificationClarification()
+  await testLongDocumentTraversal()
   await testReviewResumeAndMode()
   await testDetailedLlmResponse()
   await testStreamedAnalysisEvents()
@@ -752,7 +793,8 @@ try {
   assert.deepEqual(pairedDispatchFinished.result.findings[0].supportingMaterials.map((item) => item.id), ['dispatch-risk-1'])
   assert.deepEqual(pairedDispatchFinished.result.lawCandidates.map((item) => item.title), ['当地派遣服务管理规定'])
   assert.ok(pairedDispatchFinished.result.privacyNotice.includes('自动识别可能遗漏'))
-  assert.equal(dispatchModelSpy.length, beforeDispatchModelCount + 2)
+  assert.equal(dispatchModelSpy.length, beforeDispatchModelCount + 3, '派遣分析额外增加一次结构分析调用')
+  assert.equal(dispatchModelSpy.at(-3).phase, 'structure', '结构分析必须最先执行')
   assert.equal(dispatchEvidenceSpy.length, beforeDispatchRetrievalCount + 1)
   assert.equal(dispatchEvidenceSpy.at(-1).plan.contractType, '劳务派遣协议')
   assert.equal(dispatchEvidenceSpy.at(-1).options.strictContractType, true)

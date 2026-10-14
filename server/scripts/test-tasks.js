@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import express from 'express'
 import JSZip from 'jszip'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createTaskRouter } from '../routes/tasks.js'
@@ -11,6 +11,7 @@ import { createTaskProcessor } from '../services/task-processor.js'
 import { createTaskQueue } from '../services/task-queue.js'
 import { createTaskService } from '../services/task-service.js'
 import { initialize as initializeLawDatabase } from '../services/law-whitelist.js'
+import { mergeMaterials, getMaterials, materialStoreKey } from '../services/consult-material-store.js'
 
 // 回归测试必须自带环境：.env.local 里的 TASK_QUEUE_MODE/REDIS_URL/TASK_RUN_WORKER
 // 面向真实部署，不能决定测试行为，否则本地无 Redis 时 enqueue 会直接失败。
@@ -145,6 +146,25 @@ try {
   assert.match(laborEventsText, /event: consult\.delta/)
   assert.match(laborEventsText, /event: consult\.citations/)
   assert.ok(database.prepare("SELECT COUNT(*) AS count FROM task_checkpoints WHERE task_id = ? AND stage IN ('materials', 'retrieval', 'generation')").get(laborCreated.taskId).count >= 3)
+  const laborSourcePath = database.prepare('SELECT storage_path FROM task_files WHERE task_id = ?').get(laborCreated.taskId).storage_path
+  const ownerMaterialKey = materialStoreKey('user-a', 'labor-thread-test')
+  const otherMaterialKey = materialStoreKey('user-b', 'labor-thread-test')
+  mergeMaterials(otherMaterialKey, [{ name: '另一用户材料', text: '应保留' }])
+  const forget = (user) => request('/api/labor-consult/forget', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Test-User': user }, body: JSON.stringify({ conversationId: 'labor-thread-test' }) })
+  assert.equal((await forget('user-b')).status, 200)
+  assert.ok(taskService.getTaskInternal(laborCreated.taskId))
+  mergeMaterials(otherMaterialKey, [{ name: '另一用户材料', text: '应保留' }])
+  const removeFiles = fileStore.removeTaskFiles
+  fileStore.removeTaskFiles = async () => { throw new Error('synthetic cleanup failure') }
+  try { assert.equal((await forget('user-a')).status, 500) } finally { fileStore.removeTaskFiles = removeFiles }
+  assert.ok(taskService.getCheckpoint(laborCreated.taskId, 'material-source'))
+  assert.ok(getMaterials(ownerMaterialKey).length)
+  assert.equal((await forget('user-a')).status, 200)
+  assert.equal(taskService.getTaskInternal(laborCreated.taskId), null)
+  assert.equal(taskService.getCheckpoint(laborCreated.taskId, 'material-source'), null)
+  assert.equal(existsSync(laborSourcePath), false)
+  assert.equal(getMaterials(ownerMaterialKey).length, 0)
+  assert.equal(getMaterials(otherMaterialKey)[0].text, '应保留')
 
   const emptyLaborBody = new FormData()
   emptyLaborBody.append('message', '请说明附件为空文本时如何继续咨询')

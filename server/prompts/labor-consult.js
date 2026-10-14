@@ -218,7 +218,7 @@ ${kbStatus ? `\n# 证据可用性\n${kbStatus}` : ''}`
  */
 export function buildLaborConsultUserMessage({ message = '', attachments = [], kbEntries = [], evidence = [], cases = [] } = {}) {
   const attachmentSection = (attachments || []).length
-    ? attachments.map((item, index) => `## 材料 ${index + 1}：${item.name}\n${String(item.text || '').slice(0, 20000)}`).join('\n\n')
+    ? attachments.map((item, index) => `## 材料 ${index + 1}：${item.name}\n${String(item.text || '')}`).join('\n\n')
     : '（本次咨询尚未提供材料）'
 
   const kbSection = (kbEntries || []).length

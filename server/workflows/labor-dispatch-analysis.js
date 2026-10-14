@@ -1,3 +1,4 @@
+import { MAX_MODEL_OUTPUT_TOKENS } from '../../src/utils/context-budget.js'
 import { extractText } from '../services/file-parser.js'
 import { searchEvidence, DEFAULT_EVIDENCE_LIMIT } from '../services/knowledge-base.js'
 import { listLawsForBaseline, resolveLawStatus } from '../services/law-whitelist.js'
@@ -200,7 +201,7 @@ export function createLaborDispatchAnalysisWorkflow({
 } = {}) {
   const optionsFor = ({ mode, signal, requestTimeoutMs, maxTokens }) => ({
     model: mode === 'fast' ? getFlashModel() : getProModel(), temperature: 0.15,
-    maxTokens: maxTokens || (mode === 'fast' ? 8192 : 16384),
+    maxTokens: maxTokens || MAX_MODEL_OUTPUT_TOKENS,
     thinking: { type: mode === 'fast' ? 'disabled' : 'enabled' },
     ...(mode === 'fast' ? {} : { reasoningEffort: 'low' }),
     responseFormat: { type: 'json_object' }, signal, requestTimeoutMs, maxAttempts: 1
@@ -227,13 +228,17 @@ export function createLaborDispatchAnalysisWorkflow({
       await emit('stage.start', { stage: 'parsing', label: '正在读取劳务派遣协议和配套材料' })
       const documents = []
       const parseErrors = []
+      let reusedFiles = 0
       const inputOrder = new Map((input.fileRefs || []).map((ref, index) => [String(ref.id), index]))
       const filesInInputOrder = [...files].sort((left, right) =>
         (inputOrder.get(String(left.id)) ?? Number.MAX_SAFE_INTEGER) - (inputOrder.get(String(right.id)) ?? Number.MAX_SAFE_INTEGER)
       )
       for (const [index, file] of filesInInputOrder.entries()) {
         ensureActive()
-        await emit('stage.progress', { stage: 'parsing', message: `正在解析材料 ${index + 1}/${files.length}` })
+        // 材料准备阶段已解析过的文件在这里只是复用正文，不再谎报“正在解析”。
+        const reused = Boolean(file.preparsed)
+        if (reused) reusedFiles += 1
+        await emit('stage.progress', { stage: 'parsing', message: `${reused ? '正在复用已解析正文' : '正在解析'}材料 ${index + 1}/${files.length}` })
         try {
           const result = await parseFile(file)
           const content = String(result?.text || '').trim()
@@ -241,7 +246,7 @@ export function createLaborDispatchAnalysisWorkflow({
           if (content) documents.push({
             fileId: String(file.id || ''), fileName: String(file.originalname || file.originalName || '上传文件'),
             role: input.fileRefs?.find((ref) => ref.id === file.id)?.role || input.fileRoles?.[index] || '',
-            pageCount: Number(result?.pageCount) || null, text: content
+            pageCount: Number(result?.pageCount) || null, text: content, parseMetadata: result.metadata
           })
           else parseErrors.push(`材料 ${index + 1}：未提取到可分析文本`)
         } catch (error) {
@@ -269,7 +274,8 @@ export function createLaborDispatchAnalysisWorkflow({
       }
       parsed = { documents, parseErrors, totalLength }
       if (files.length && !['reanalyze', 'restart-analysis'].includes(input.action)) await checkpoint('parsing', parsed)
-      await emit('stage.complete', { stage: 'parsing', summary: `解析完成，提取 ${totalLength} 个字符`, fileCount: documents.length })
+      const allReused = files.length > 0 && reusedFiles === files.length
+      await emit('stage.complete', { stage: 'parsing', summary: allReused ? `已复用 ${totalLength} 个字符的已解析正文` : `解析完成，提取 ${totalLength} 个字符`, fileCount: documents.length, reused: allReused })
     } else {
       parsed.totalLength ||= parsed.documents.reduce((sum, item) => sum + String(item.text || '').length, 0)
       const roleById = new Map((input.fileRefs || []).map((ref) => [String(ref.id), ref.role]))

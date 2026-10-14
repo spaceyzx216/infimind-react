@@ -565,3 +565,86 @@ npm run test:auth:client    # 浏览器侧鉴权客户端回归
 - Node 服务仅监听本机或内网，由 Nginx 反代；不要直接暴露服务端口。
 - 合同及上传材料具有敏感性；临时转换目录会在解析后清理，但部署日志不得记录正文。
 - 输出是辅助起草/审查，不构成法律意见；高风险交易、签署、授权、税务与监管事项仍需人工专业复核。
+
+
+## 员工手册报告与诊断批注稿（2026-10-13）
+
+员工手册复用共享解析正文及材料核对面板，报告按摘要、重点问题与修改建议、待确认事项和检查说明展示，字号与合同审查一致。原文批注复用合同组件和 Word 可读 `.doc` 导出；文件可切换，问题编号跨引用一致，原文不自动替换。待核实、OCR 未确认或无法唯一定位的示例条款不展示、不复制，诊断提示仍保留。
+
+历史报告追问保留原解析快照；旧解析版本重新诊断时重读原件，后续分析按正文签名恢复。外部法条清单仍由 `HANDBOOK_PROVISION_MANIFEST` 显式配置，不把条号匹配或模型支持意见当成法务验收。向量检索仍未进入正式链路。
+
+本轮验收见 [整合与批注验收](docs/员工手册诊断测试/整合与批注验收-20261013.md)。用户要求先完成本地，当前远端 PR 未更新，尚未合入或部署。
+
+## 合同与仲裁故障修复、预算及上下文保留（2026-10-13）
+
+需求来自用户本轮确认：商业快速关闭思考，深度按阶段选择；所有工具生产模型调用提高到官方输出上限393216；优先分块/修补并保存已完成内容；取消旧草稿和共享历史的固定字符/条数裁剪。商业深度风险审查用high，结构分析与修订用low，归并/汇总关闭；其它工具原思考策略保留。
+
+仲裁浏览器实际提交8个文本字段，旧上传中间件只允许7个，现已对齐。商业结构/审查输出未完整结束时有限修补并缩小内容块；不再跳过JSON异常包装成零风险成功。摘录只允许逐字或忽略空白的唯一匹配，保存真实原文，不猜位置。失败任务保留可读原文、已完成分析/已核验风险和修订，明确尚待核对范围；`POST /api/tasks/:taskId/retry`仅允许恢复用户自己的失败商业审查任务，并保留检查点和同对话串行保护。
+
+上下文容量为1048576 token，预留393216输出及8192安全余量。共享历史按完整轮次和容量选取；劳动合同/派遣追问读取可用的完整历史，按当前报告与原文所占容量选择完整问答，保存答案不再切到16000字符。起草当前完整草稿作为必需输入；超过容量时逐块更新，保存各块检查点，失败保留旧版本，最终结构校验通过后发布新稿。正文处理覆盖不等于法律或语义正确。请求JSON及multipart单字段上限12MB；文件大小/数量和明确拒绝的输入上限仍保留。
+
+本地验证：任务、中断、起草、劳动合同/派遣、仲裁、归并、共享文件解析与员工手册相关回归通过；新增仲裁8字段上传、商业失败恢复/越权/继续、完整历史/长草稿/117块恢复及浏览器失败侧栏检查通过。最新隔离`npm run build`退出0；`npm run lint`退出0，0 errors/105 warnings；`git diff --check`通过。真实DeepSeek仅使用手写虚构文本：393216预算的快速/深度短调用及商业审查/归并/修订链通过；该商业链预置解析、结构分析及空知识检查点，未覆盖真实解析/知识检索全链路，也不代表法律准确率。
+
+起草条款解释切换到旧SSE路径时，同样传递独立当前草稿快照；容量内发送完整草稿，超容量选与问题相关的原文块并说明本轮范围。此前把快照从可丢弃历史移出后，不能遗漏这条解释路径。
+
+尚未提交、推送或部署；共享工作区含此前的员工手册/解析及其他模块改动，不能全部打包提交。用户明确选择继续测试、暂缓最终API/Worker重载；当前进程保留此前修复版本，所有工具统一预算/完整上下文及最新SSE快照修正尚不能当作已加载。进程重启命令曾被自动审批拦截，未执行；当前健康接口正常。已有商业审查测试任务`608b93ea-85b2-4f2a-a256-8a6a96f39ceb`实际succeeded并保存42修订组，但不能据此验收未重载的最新改动或法律准确性。带教工作区仍待人工验收；不能将回归或旧交接的历史成功记录当作本次业务验收。
+
+### 底部批注稿入口与原文编号补测（2026-10-13）
+
+带教反馈为“有回答但底部没有修订稿，进不去侧栏，怀疑截断/编号”。本地复现并修复：入口依赖phase造成历史有原文仍无入口；已完成但仅有报告的缓存不回查持久文档；空localizedEdits条目导致侧栏渲染异常；移除文件分隔行后行号偏移造成批注丢失。页面和Word可读导出均保留物理行号，只隐藏分隔行展示。共享修订配对拒绝明确错误ID的顺序回退，保留已核验原文提示；无ID的旧格式继续兼容。
+
+关闭分析面板会通过WorkspaceTheme同时隐藏底部入口和侧栏，是既有设置行为，本轮保留。重复显示编号本身未导致入口消失；无效原文行号不会影响入口/原文显示，但不把该批注猜到别的行上。事件流丢失rewrite.result时，当前前端仍能从任务持久结果恢复。带教实际代码/返回结果未取得，不能把上述复现情况直接当作他的确定根因。
+
+新增`node server/scripts/test-commercial-document-entry-ui.mjs`的10个隔离浏览器场景全部通过，含Word可读.doc高亮/编号/批注卡下载检查；新增`node server/scripts/test-revision-result-integrity.js`验证截断JSON抢救、空输出提示保留、正确ID优先于顺序、错误ID拒绝与无ID兼容。商业失败恢复及浏览器继续、归并、劳动合同/派遣、中断和员工手册批注7项回归通过。隔离构建通过，构建副本与当前审查页面SHA256一致；lint退出0，0 errors/105 warnings；git diff --check通过。
+
+只读检查商业任务`608b93ea-85b2-4f2a-a256-8a6a96f39ceb`：原文4488字符、42修订组、51显示项，0挂载行越界、0片段范围越界，原文/修订事件已保存。这只证明该次数据和范围有效，不是法律准确率。新浏览器回归使用当前Vite源码；按照用户“暂缓重启”选择，现役API/Worker没有重启，最新后端ID配对修复也待重载。
+
+## 批注稿人工编辑与「最终确认意见」导出（2026-10-14）
+
+用户本轮要求：商业合同审查和劳动合同分析的批注稿中，每条批注都要支持人工编辑；之后复制和下载导出的都必须是最后确定好的意见。
+
+实现：批注稿每条批注（编号就近批注卡，以及新增/删除/修订的紧凑卡）都加了「编辑」，可改写处理方式、建议文字、批注说明、完整条款建议；改后标「已人工修改」，可单条「恢复 AI 原稿」或标题栏「已人工修改 N 条 · 全部恢复」。人工编辑只覆盖意见字段，`lineStart`/`lineEnd`/`quoteSpans`/`insertAfterLine` 等服务端定位数据一律不动，所以改写后批注仍钉在原句上，不会串到别的条款。页面渲染、复制、「下载 Word」三条路径共用同一份 `buildDisplayRevisions(revisions, annotationEdits)`，编辑按批注 ID（`findingId`/`editId`）保存，导出不会回退成模型初稿。
+
+新增 `src/utils/revision-annotations.js`（纯函数：编辑表校验、展示派生、批注锚点指纹、批注挂行与高亮合并、复制用纯文本批注稿），`ContractRewritePage.jsx` 的 `buildDisplayRevisions` 迁入该模块供两页共用；`downloadRevisionWord` 增加 `annotationEdits`，并把意见里的换行输出为 `<br>`。文档头「复制」由复制原文改为复制含最终意见的批注稿（无批注时仍逐字复制原文），标题与汇总条说明同步改写。商业合同审查的编辑随对话消息落在本地历史（`message.annotationEdits`）；劳动合同/派遣分析的任务结果在服务端只读，编辑按报告任务 ID 存本浏览器（`fafee-labor-contract-analysis-annotation-edits-v1`），删除会话时同步清理。员工手册诊断批注稿复用同一组件但未接线编辑，保持只读。
+
+验证：新增 `npm run test:annotation-edits`（10 个纯函数场景：编辑只覆盖展示字段、定位不变、编号稳定、缺 `findingId` 时按展示序号兜底且互不覆盖、复制文本取最终意见、非法持久化数据被丢弃）与 `npm run test:annotation-edits-ui`（浏览器回归，需先 `npm run dev`，系统 Chrome，`/api/**` 全拦截、虚构合同：两页均验证就地编辑、复制与 `.doc` 下载含改后文字且不含模型原文、刷新后编辑仍在、恢复原稿与全部恢复、390px 视口不横向溢出）。回归过程中抓到两个真实缺陷：一是劳动合同分析的嵌套编辑表被按单层 patch 解析，刷新后编辑丢失，已补 `normalizeAnnotationEditStore` 与对应场景；二是服务端批注 ID 是位置序号，同任务重跑换了条款后旧的人工意见会套到新条款并照样导出，现改为每条编辑记录写入时的锚点指纹（处理方式+行号+原片段），锚点对不上即丢弃，标题栏计数也改为只统计仍然生效的编辑。分工独立复查（Playwright 实跑）复现了后者的商业与劳动两条路径，浏览器回归现用「同一会话、同序号、不同条款」的第二份结果锁定该行为（改回旧口径会失败）。`npx eslint .` 退出0，0 errors/104 warnings（与基线一致）；`npx vite build` 隔离输出目录通过（2345 modules，仓库 `index.html` 哈希未变）；`npm run test:labor-contract-analysis`、`test:consolidation`、`test:tasks`、`test:interrupt`、员工手册批注 7 项、`test:labor-contract-ui` 均通过。`npm run test:word-annotations`、`test-contract-review-output-ui`、`test-material-review-ui` 在本机因缺少 LibreOffice 与本机未安装 Playwright 自带 Chromium（脚本内置的 Windows Edge 路径不存在）运行不了，属环境问题，与本次改动无关。
+
+范围与边界：编辑不写回服务端任务结果，劳动合同分析的人工修改换设备/换浏览器看不到；如需跨端一致要在任务库加保存接口，属接口改动，需另行确认。批注稿之外（对话正文、审查报告）不受影响。界面自查见 `design-qa.md`「批注稿人工编辑与最终意见导出核对」，截图在 `design-qa-assets/annotation-edit-*.png`。尚未提交、推送或部署。
+
+## 部署到线上（2026-10-14）：全量上线 + SSL 更换为 Let's Encrypt
+
+用户指令：读服务器访问清单 → SSH 登录查看现有配置 → 给现有版本留回滚版本 → 把本项目部署上来；并在确认后按「全选部署 + 生成 50 个邀请码」执行，SSL 选「acme.sh 签发 Let's Encrypt 并自动续签」。
+
+线上原本是很旧的部署：后端代码停在 2026-09-20/24（只有 2 个路由：`contract-rewrite`、`labor-consult`，没有 `workflows/`、没有任务平台和鉴权），前端 dist 停在 2026-10-08。本次把工作区全量推上去，站点从「免登录两功能」升级为完整产品（登录 + 邀请码注册 + 任务平台 + 劳动合同分析/仲裁/手册/起草）。注意：`server/index.js` 对 `/api`（除 `/api/auth`）统一要求登录，因此线上匿名调用 `/api/labor/status` 现在返回 401，这是预期行为而非故障。
+
+回滚点：`/www/backup/infimind-20261014-144213`（297M）——旧后端代码 tar、旧 dist tar、nginx 配置两份（改动前/加 X-Forwarded-Proto 前）、`.env.local` 两份、旧证书副本、`node_modules.bak`（261M，装依赖前的完整副本）；前端另有 `/www/wwwroot/www.flylegal.cn/dist-old-20261014-145118`。回滚方式见归档项目 `docs/部署到宝塔服务器.md` 第 6 节。
+
+关键改动与验证：
+- 服务器 `.env.local` 追加 `JWT_SECRET`（96 十六进制字符，服务器本地生成、未外传）与 `AUTH_ALLOWED_ORIGINS=https://www.flylegal.cn`（权限仍 600 www:www）；缺 JWT_SECRET 新后端会拒绝启动。
+- nginx `/api/` 增加 `X-Forwarded-Proto $scheme` 与 `X-Forwarded-For`（否则反代下 `request.protocol` 是 http，登录的 Origin 校验会 403）；`nginx -t` 通过后 reload。
+- 依赖：`npm install --omit=dev` 新增 227 个包（新代码在启动路径上静态依赖 `jose`、`bullmq`、`exceljs`、`fast-xml-parser`，OCR 预处理还需要 `jimp`，服务器此前都缺）。`better-sqlite3` 保持 12.11.1 未被重装，原生模块内存库自检通过。
+- 后端上传前排除了 `server/data`（本地 app.db 153M 属开发数据，绝不能覆盖线上）、`*.db-wal`、`*.db-shm`、`._*`、`.DS_Store` 与知识库两个 db；线上 `labor.db`(18,722,816) 与 `templates.db`(10,285,056) 字节数未变，启动日志 `laws seeded: 0, existing: 20`、`Labor vector index: 764/764 model=Pro/BAAI/bge-m3 ready=true`。
+- 邀请码：`serializeInviteCode` 由 `FF-<24hex>` 改为 7 位大写字母+数字（如 `UNC8MQU`），取模前丢弃 >=252 的字节避免分布偏差；服务器 `npm run invite:create -- --count 50` 生成 50 个未使用邀请码。冒烟测试用的账号与邀请码已从业务库删除，`users=0`、未使用邀请码=50。
+- SSL：原 TrustAsia 证书 2026-10-14 07:59:59 UTC 到期且无自动续签。已装 acme.sh（v3.1.7），webroot 模式签发 `www.flylegal.cn` 的 Let's Encrypt 证书并安装到宝塔原路径（nginx 配置未改证书路径），到期 2027-01-12；`--install-cert --reloadcmd "nginx -s reload"` 生效，crontab 已有 `acme.sh --cron`（每天 4 次，ARI 建议 12-13 续签）。
+- 验证：`/` 200、`/api/health` 200、未登录 `/api/labor/status` 401、入口 `index-CK8QOfXg.js`；真实浏览器（系统 Chrome）跑通「未登录跳 /auth → 邀请码注册 → 登录回到目标工具页 → 劳动合同分析工作台渲染 → 刷新仍在线」，无前端报错；服务器上 `npm run test:auth`、`test:consolidation`、`test:tasks` 全部通过；PM2 `infimind-server` online，`pm2 save` 已持久化。
+
+仍需注意：`flylegal.cn` 裸域仍由宝塔默认站点用自签证书服务（历史遗留，本次未动；`www` 已正常）；服务器上还留着旧的 `agents.zip`/`prompts.zip` 等历史文件与旧模块（新代码不引用，未清理）；归档项目的《服务器访问与配置清单》仍写着「无鉴权、8790 直连」，与实际已不一致，需下次同步。本次未提交 Git（本工作区无 `.git`）。
+
+### 补部署：五份劳动仲裁意见参考材料（2026-10-14 15:05）
+
+问题：HANDOFF 第 209/295 条早前要求「五份 `server/data/labor-arbitration/references/1.txt–5.txt` 须随仲裁实现纳入交付，不能无替代方案漏交付」，但 14:51 的全量部署把 `server/data` **整目录排除**（为保护本地开发用的 `app.db`），连带把这五份版本化知识资产漏掉了。它们在服务器上不是「过期」而是**整个目录不存在**；`labor-arbitration.js` 的 `loadOpinionReferences()` 读取失败时只打一条 `opinion references unavailable` 警告并返回空数组，属静默降级，所以不会报错也不会阻断任务。同一目录还是 `test-arbitration-hardening.js` 的读取对象，缺料时该回归也会失败。
+
+处理：把 `server/data/labor-arbitration/` 单独打包上传（6.7KB），服务器端 md5 与本地逐一比对一致；`app.db`/`app.db-shm`/`app.db-wal` 未触碰（大小与时间戳不变）。`loadOpinionReferences()` 在每次仲裁任务内调用、不做模块级缓存，因此**无需重启**，下一单仲裁即生效。
+
+验证：服务器上按工作流同口径装载得到 **5 条参考、合计 6094 字**（上限 20000，未截断）；`node server/scripts/test-arbitration-hardening.js` 与 `node server/scripts/test-labor-arbitration.js` 均通过。线上业务库 `tasks=0 / users=0 / 未使用邀请码=50`，说明缺料窗口内没有任何仲裁任务产生过无参考的结果。
+
+部署规则修正（下次务必按这个排除口径，不要整目录排除 `server/data`）：
+
+```
+--exclude='server/data/*.db' --exclude='server/data/*.db-wal' --exclude='server/data/*.db-shm' \
+--exclude='server/data/task-files' \
+# 仍然排除：server/knowledge-base/{labor.db,templates.db,labor-kb-labels.json,evaluation-report.json}
+# 必须保留：server/data/labor-arbitration/references/（版本化知识资产，不是运行时状态）
+```
+
+另：`1.txt` 首行原为「动争议答辩意见」，比 2.txt/5.txt 的「劳动仲裁答辩意见」少一个首字「劳」。经用户确认确为截断，已于 15:06 补正：`1.txt` 3928→3931 字节，除首行新增「劳」外其余 3928 字节逐字节一致（`cmp` 校验），md5 `2249f23a…`→`8cec32b8…`；修正后的文件已上传服务器并复核 md5 一致，装载合计 6094→6095 字（上限 20000 内），`test-arbitration-hardening.js` 与 `test-labor-arbitration.js` 在服务器上复跑通过。服务器上的原始版本留档于 `/www/backup/infimind-20261014-1504-refs/1.txt.before-fix`。`server/knowledge-base/labor-kb-labels.json` 依旧不上传（仅离线评测/调参脚本使用）。

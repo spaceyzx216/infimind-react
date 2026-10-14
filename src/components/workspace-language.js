@@ -1,4 +1,5 @@
 const pairs = `设置|Settings
+员工手册诊断|Employee handbook review
 医疗期计算器|Medical period calculator
 养老保险测算|Pension estimate
 返回设置|Back to settings
@@ -36,6 +37,11 @@ Shift + Enter 始终换行|Shift + Enter always inserts a new line
 Enter 发送|Enter to send
 ⌘ / Ctrl + Enter 发送|⌘ / Ctrl + Enter to send
 搜索历史会话|Search conversations
+搜索历史审查|Search reviews
+搜索历史草稿|Search drafts
+搜索历史分析|Search analyses
+搜索历史案件|Search cases
+搜索历史诊断|Search handbook reviews
 新建会话|New conversation
 展开 / 收起历史|Toggle history
 打开设置|Open settings
@@ -131,6 +137,15 @@ Enter 发送|Enter to send
 上传仲裁材料|Upload arbitration materials
 上下文占比|Context used
 上下文已用|Context used
+充足|Ample
+渐满|Filling up
+接近上限|Nearly full
+会话空间充足|Plenty of conversation space
+会话空间逐渐用满|Conversation space is filling up
+会话空间接近上限|Conversation space is nearly full
+可以继续交流|You can keep chatting
+可以继续交流，长材料建议另开会话|You can keep chatting. Start a new chat for long documents.
+建议新建会话，继续处理问题|Start a new chat to continue
 最近一次调用的实际输入用量。|Actual input usage from the latest request.
 发送前预估，尚未计入本轮附件和检索资料；回复后按实际输入用量校正。|Estimate excludes new attachments and retrieved sources. Updated after the response.
 发送|Send
@@ -236,6 +251,8 @@ AI 生成内容仅供参考，请结合实际情况判断|AI-generated content i
 劳务派遣协议审查批注稿|Annotated labour dispatch agreement
 查看完整修订与批注|View revisions and annotations
 查看正在生成的原文批注稿|View annotations in progress
+查看原文批注稿|View original-text annotations
+点击展开合同原文|Open the contract text
 点击展开文档|Open document
 合同原文|Original contract
 上传材料原文|Original uploaded materials
@@ -386,6 +403,22 @@ export function translateWorkspace(text, language) {
 
 Object.assign(WORKSPACE_EN, Object.fromEntries(` · 未发现新问题，审查结束| · No new issues. Review complete.
 ## 审查摘要|## Review summary
+# 合同基础识别|# Contract basics
+# 条款结构图|# Clause structure map
+# 要素完整性核查|# Required-element check
+# 文本一致性与待确认事项|# Text consistency and open questions
+# 审查结论|# Review conclusion
+# 逐条批注|# Clause-by-clause annotations
+# 完整性清单|# Completeness list
+# 审查说明|# Review notes
+- 定位：|- Anchor:\x20
+- 位置：|- Location:\x20
+- 原文：|- Source text:\x20
+- 问题子句：|- Problematic clause:\x20
+- 风险：|- Risk:\x20
+- 建议：|- Recommendation:\x20
+- 建议替换文本：|- Suggested replacement:\x20
+- 知识库参考：|- Knowledge base references:\x20
 /3 轮完成|/3 passes completed
 · 仅用于条款对照和提示，不是法律依据|· For clause comparison only, not legal authority
 · 历史对话|· Conversation history
@@ -488,7 +521,29 @@ Object.assign(WORKSPACE_EN, {
   '正在停止上一轮审查…': 'Stopping the previous review…', '正在读取合同文件…': 'Reading the contract…',
   '正在识别合同结构…': 'Identifying contract structure…', '正在匹配参考资料…': 'Matching references…',
   '正在审查风险条款…': 'Reviewing clause risks…', '正在归并重复和关联问题…': 'Consolidating related issues…',
-  '正在生成局部批注稿…': 'Generating inline annotations…', '正在深度思考…': 'Thinking deeply…', '正在快速回复…': 'Preparing a quick response…'
+  '正在生成局部批注稿…': 'Generating inline annotations…', '正在深度思考…': 'Thinking deeply…', '正在快速回复…': 'Preparing a quick response…',
+  '已完成内容已保存，请继续核对剩余条款。': 'Completed content has been saved. Please continue reviewing the remaining clauses.',
+  '合同检查已保存已完成部分': 'Saved the completed part of the contract review',
+  '派遣协议检查已保存已完成部分': 'Saved the completed part of the dispatch agreement review',
+  '（未完成）': ' (incomplete)',
+  // 批注人工编辑文案。这里只登记完整、独立的标签：翻译表是按片段做全局替换的，
+  // 单字或高频词（如“编辑”“提示”“第”）会污染同页其它中文，不能作为键。
+  '编辑批注': 'Edit annotation', '编辑条款建议': 'Edit clause advice',
+  '编辑只影响意见内容；原文高亮位置不会改变。': 'Editing changes the advice only; highlights stay anchored to the source.',
+  '已人工修改': 'Edited', '已人工修改 ': 'Edited ', ' 条批注': ' annotations',
+  ' 条 · 全部恢复': ' annotations · Restore all',
+  ' 条批注；复制和下载导出的都是修改后确认的意见。': ' annotations; copy and download export these confirmed versions.',
+  '恢复 AI 原稿': 'Restore AI version', '保存批注': 'Save annotation',
+  '⌘/Ctrl + Enter 保存，Esc 取消': '⌘/Ctrl + Enter to save, Esc to cancel',
+  '处理方式': 'Action', '批注标题': 'Annotation title', '批注说明': 'Annotation note',
+  '建议修改为': 'Change to', '提示内容': 'Reminder', '新增条款内容': 'New clause text',
+  '修订后条款': 'Revised clause', '完整条款建议': 'Full clause advice',
+  '填写最终确认给对方的表述': 'Enter the wording you have finally confirmed',
+  '说明风险依据、需要确认的事实': 'Risk basis and facts to confirm',
+  '新增条款建议': 'New clause advice', '删除条款建议': 'Deletion advice', '条款修订建议': 'Clause revision advice',
+  '复制批注稿（含最终确认意见）': 'Copy annotated draft (final advice)',
+  '下载 Word 批注稿（含最终确认意见）': 'Download Word annotated draft (final advice)',
+  '每条批注都可以点“编辑”直接改写成你的最终意见；复制和下载导出的都是最终确认的版本。': 'Every annotation can be edited into your final advice; copy and download always export the confirmed version.'
 })
 
 const fragments = Object.keys(WORKSPACE_EN).sort((a, b) => b.length - a.length)

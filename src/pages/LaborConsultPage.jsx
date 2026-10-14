@@ -1,6 +1,8 @@
+import { selectConversationHistory } from '../utils/context-budget.js'
 import { useComposerSend } from '../hooks/useComposerSend'
 import QueuedMessages from '../components/QueuedMessages'
 import SideChatEmptyState from '../components/SideChatEmptyState'
+import SidebarSearch from '../components/SidebarSearch.jsx'
 import ToolComposerControls from '../components/ToolComposerControls'
 import { useWorkspaceText, useWorkspaceLayout } from '../components/WorkspaceContext'
 import { useConversationActions } from '../hooks/useConversationActions'
@@ -9,27 +11,7 @@ import { useSharedConversations, useSharedRequestState } from '../hooks/useShare
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MarkdownBody from '../components/MarkdownBody.jsx'
 import ReasoningSummary from '../components/ReasoningSummary.jsx'
-import {
-  AlertTriangle,
-  BookOpen,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  FileText,
-  Gavel,
-  History,
-  Library,
-  Loader2,
-  MessageCircle,
-  PenLine,
-  Plus,
-  Scale,
-  Send,
-  ShieldCheck,
-  Sparkles,
-  Trash2,
-  X
-} from 'lucide-react'
+import { AlertTriangle, BookOpen, ChevronDown, ChevronLeft, ChevronRight, FileText, Gavel, Library, Loader2, MessageCircle, PenLine, Plus, Scale, Send, ShieldCheck, Sparkles, Trash2, X } from 'lucide-react'
 import './ContractRewritePage.css'
 import './LaborConsultPage.css'
 // 附件格式白名单与选择逻辑统一走共享模块：此前三处副本已经漂移（本页含 .markdown、合同页不含），
@@ -669,10 +651,9 @@ function LaborConsultPage() {
     if ((!content && !selectedFiles.length) || isAsking || !activeConversation || inFlightRef.current.has(activeConversation.id)) return
     const conversationId = activeConversation.id
     const assistantId = createId('assistant')
-    const history = activeConversation.messages
+    const history = selectConversationHistory(activeConversation.messages
       .filter((message) => (message.type === 'user' || message.type === 'assistant') && message.content)
-      .slice(-6)
-      .map((message) => ({ role: message.type === 'user' ? 'user' : 'assistant', content: message.content }))
+      .map((message) => ({ role: message.type === 'user' ? 'user' : 'assistant', content: message.content })), { question: content }).history
 
     const uploadedFiles = selectedFiles.map((file) => ({ name: file.name, size: file.size }))
     const displayContent = content || `请分析我上传的 ${uploadedFiles.length} 份材料涉及的劳动用工问题。`
@@ -888,15 +869,15 @@ function LaborConsultPage() {
     patchRequest(activeConversation?.id, { error: describeRejection({ unsupported, overflow }) })
   }
   const removeFile = (name) => setFiles((items) => items.filter((item) => item.name !== name))
-  const deleteConversation = (event, conversationId) => {
+  const deleteConversation = async (event, conversationId) => {
     event.stopPropagation()
     if (inFlightRef.current.has(conversationId)) return
-    // 通知服务端释放该会话留存的上传材料（失败不影响本地删除）
-    authFetch('/api/labor-consult/forget', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversationId })
-    }).catch(() => {})
+    try {
+      const response = await authFetch('/api/labor-consult/forget', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversationId })
+      })
+      if (!response.ok) throw new Error((await response.json()).error || '会话材料清理未完成，请重试删除。')
+    } catch (error) { patchRequest(conversationId, { error: error.message || '会话材料清理未完成，请重试删除。' }); return }
     setConversations((items) => {
       const remaining = items.filter((item) => item.id !== conversationId)
       return remaining.length ? remaining : [createConversation()]
@@ -913,10 +894,7 @@ function LaborConsultPage() {
   return (
     <main className={`contract-chat labor-consult ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${settings.analysisPanel && panelOpen ? '' : 'panel-collapsed'}`}>
       <aside className="chat-sidebar">
-        <label className="sidebar-search">
-          <History size={17} />
-          <input ref={searchRef} value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder={t("搜索历史咨询")} />
-        </label>
+        <SidebarSearch inputRef={searchRef} value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder={t("搜索历史咨询")} />
         <div className="sidebar-brand"><span className="brand-orb"><img src="/logo.png" alt="" /></span><strong>{t("法飞飞")}</strong></div>
         <button type="button" className="sidebar-action" onClick={startConversation}><PenLine size={20} />{t("新咨询")}</button>
         <p className="history-label">{t("历史咨询")}</p>

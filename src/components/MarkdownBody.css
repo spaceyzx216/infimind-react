@@ -49,3 +49,57 @@
     border-bottom: 1px solid #c0392b;
   }
 }
+
+/*
+ * Markdown 表格。
+ *
+ * 背景：正文渲染已启用 remark-gfm（支持表格语法），但此前没有任何表格样式，
+ * 浏览器默认表格没有边框、没有内边距，列挤在一起，看起来就像"表格没渲染出来"。
+ * 这里补齐最小可读样式：边框、内边距、表头区分、隔行底色。
+ *
+ * 取舍：
+ *  - 表格用独立滚动容器（.markdown-table-wrap），列多时只在表格内部横向滚动，不撑破气泡；
+ *  - `border-collapse: collapse` + 1px 边框，保证在浅色/深色下都能看清单元格边界；
+ *  - 行高用 em 跟随会话字号设置（用户可在设置里把正文字号调到 12–24px）。
+ */
+.markdown-table-wrap {
+  max-width: 100%;
+  margin: 0.7em 0;
+  overflow-x: auto;
+  border-radius: 8px;
+}
+
+.markdown-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  font-size: 1em;
+  line-height: 1.55;
+}
+
+.markdown-table-wrap th,
+.markdown-table-wrap td {
+  padding: 0.45em 0.7em;
+  border: 1px solid var(--fafee-line, #eee8e1);
+  text-align: left;
+  vertical-align: top;
+  /* 单元格内允许换行，但不把长英文/数字撑成横向溢出 */
+  overflow-wrap: anywhere;
+}
+
+.markdown-table-wrap thead th {
+  background: var(--fafee-surface-soft, #f7f4ef);
+  color: var(--fafee-ink, #272b30);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.markdown-table-wrap tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--fafee-surface-soft, #f7f4ef) 55%, transparent);
+}
+
+/* 窄屏下收紧内边距，让更多列能同时看到 */
+@media (max-width: 760px) {
+  .markdown-table-wrap th,
+  .markdown-table-wrap td { padding: 0.35em 0.5em; }
+}

@@ -1,4 +1,6 @@
-import { chatDetailed, getFlashModel } from '../services/llm-client.js'
+import { selectMaterialBlocks, formatMaterialBlocks } from '../services/document-materials.js'
+import { indexedMaterialText } from '../services/material-processing.js'
+import { chatDetailed, getFlashModel, streamChat } from '../services/llm-client.js'
 import { createLaborContractRedactor } from '../services/labor-contract-redaction.js'
 import { extractQueryTerms } from '../services/cjk-tokenizer.js'
 import { searchLaborKbLexical } from '../services/labor-kb.js'
@@ -6,7 +8,8 @@ import { searchCases } from '../services/law-whitelist.js'
 import { validateTitle } from '../services/title-refiner.js'
 import { selectArbitrationMaterialText, arbitrationResultIssues, extractExplicitArbitrationRequests, arbitrationRequestCoverageIssues } from '../services/arbitration-validation.js'
 import { buildCaseSources, materialSignature, normalizeCaseRecord, validateAnalysisSources,
-  validateDraftParts, composeArbitrationDraft, affectedRequestIds, calculationIssues, inlineArithmeticIssues, list, str, hash } from '../services/arbitration-case-record.js'
+  validateDraftParts, composeArbitrationDraft, affectedRequestIds, calculationIssues, inlineArithmeticIssues, list, str, hash,
+  downgradeUnavailableEvidence } from '../services/arbitration-case-record.js'
 import { CASE_RECORD_PROMPT, CASE_ANALYSIS_PROMPT, CASE_REPLY_PROMPT, CASE_DRAFT_PROMPT, CASE_REVIEW_PROMPT } from '../prompts/labor-arbitration-stages.js'
 import { normalizeArbitrationResult } from '../../src/utils/arbitration-result.js'
 import { CONTEXT_WINDOW_TOKENS, OUTPUT_RESERVE_TOKENS, CONTEXT_SAFETY_TOKENS, estimateTokens, selectHistoryByTokens } from '../../src/utils/context-budget.js'
@@ -30,10 +33,60 @@ export function selectOpinionFragments(opinions, request) {
 }
 
 // Dependencies are injectable for isolated tests; production uses the existing client and KB.
+// 哪些阶段有面向用户的叙述正文，以及对应结果里的字段名。
+// 注意：草稿阶段的 JSON 里没有 defenseDraft 字段——最终草稿是程序按 items[] 拼接的
+// （composeArbitrationDraft），所以这里不能声明它，否则永远不会命中，只会让用户
+// 在最长的阶段里干等。草稿阶段改用下面的心跳进度。
+const NARRATIVE_FIELDS = Object.freeze({
+  arbitration_analysis: 'answer',
+  arbitration_reply: 'answer'
+})
+
+// 这些阶段耗时长但正文不是模型字段（草稿要等 items[] 拼装），只推进度心跳，
+// 不推送半成品正文，避免"流式内容与最终报告不是同一份"。
+const HEARTBEAT_STAGES = Object.freeze({ arbitration_draft: '正在整理完整答辩草稿…' })
+const HEARTBEAT_INTERVAL_MS = 1500
+
+/**
+ * 从（可能尚未闭合的）流式 JSON 里取出某个字符串字段的当前值。
+ *
+ * 为什么需要它：仲裁的每个阶段都要求输出 JSON，但用户真正要看的是里面的
+ * answer / defenseDraft 正文。整段 JSON 只有生成完才可解析，所以这里按字符
+ * 扫描字段值，边生成边推送——最终结果仍以完整 JSON.parse 为准，流式文本只用于展示。
+ */
+function readPartialJsonField(raw, field) {
+  const key = `"${field}"`
+  const at = raw.indexOf(key)
+  if (at < 0) return ''
+  let index = raw.indexOf(':', at + key.length)
+  if (index < 0) return ''
+  index += 1
+  while (index < raw.length && /\s/.test(raw[index])) index += 1
+  if (raw[index] !== '"') return ''
+  index += 1
+  let text = ''
+  while (index < raw.length) {
+    const char = raw[index]
+    if (char === '\\') {
+      const next = raw[index + 1]
+      if (next === undefined) break
+      text += next === 'n' ? '\n' : next === 't' ? '\t' : next === 'r' ? '\r' : next
+      index += 2
+      continue
+    }
+    if (char === '"') break
+    text += char
+    index += 1
+  }
+  return text
+}
+
 export async function runStagedArbitration({ task = {}, input = {}, documents, warnings = [],
   checkpoint, getCheckpoint, emit, ensureActive, signal, fakeLlm, loadOpinions,
   validateLegalBasis, validateDates, dependencies = {} }) {
   const callModel = dependencies.chat || chatDetailed
+  // 面向用户的叙述阶段改为流式：逐字推送正文，不再等整段 JSON 生成完再一次性弹出。
+  const streaming = dependencies.stream || (dependencies.chat ? null : streamChat)
   const practicalSearch = dependencies.practicalSearch || searchLaborKbLexical
   const caseSearch = dependencies.caseSearch || searchCases
   const taskId = task.id || 'direct-v2'
@@ -45,7 +98,9 @@ export async function runStagedArbitration({ task = {}, input = {}, documents, w
   // while taking its selected suffix, otherwise statements would share an ID.
   const userMessages = rawUserMessages.slice(rawUserMessages.length - selectedMessages.history.length)
   if (selectedMessages.droppedMessages) warnings.push('较早企业陈述未纳入本轮；涉及早期事实时请补充原文，不能以旧分析替代。')
-  const selected = selectArbitrationMaterialText(documents, userMessage, 80000).map((doc) => ({
+  const materialSelection = selectMaterialBlocks(documents, userMessage)
+  const indexText = indexedMaterialText(input.materialIndex)
+  const selected = (input.materialIndex?.length ? documents.map((doc) => ({ ...doc, text: formatMaterialBlocks(materialSelection.blocks.filter((b) => b.fileId === doc.fileId)) + '\n' + indexedMaterialText(input.materialIndex.filter((e) => e.fileId === doc.fileId)), partial: materialSelection.coverage.partial })) : selectArbitrationMaterialText(documents, userMessage, 80000)).map((doc) => ({
     ...doc, originalText: documents.find((original) => original.fileId === doc.fileId && original.fileName === doc.fileName)?.text || doc.text
   }))
   const sources = buildCaseSources(selected, userMessages)
@@ -60,7 +115,7 @@ export async function runStagedArbitration({ task = {}, input = {}, documents, w
   const redactor = createLaborContractRedactor({ documents: selected, extraTexts: [userMessages, previous],
     categories: ['phone', 'identity', 'email', 'business-id', 'bank-account'] })
   const options = { model: getFlashModel(), thinking: { type: input.mode === 'fast' ? 'disabled' : 'enabled' },
-    reasoningEffort: 'high', temperature: 0.2, maxTokens: input.mode === 'fast' ? OUTPUT_RESERVE_TOKENS : OUTPUT_RESERVE_TOKENS * 2,
+    reasoningEffort: 'high', temperature: 0.2, maxTokens: OUTPUT_RESERVE_TOKENS,
     requestTimeoutMs: input.mode === 'fast' ? 180000 : 300000, maxAttempts: 1,
     responseFormat: { type: 'json_object' }, signal }
   const calls = []
@@ -75,8 +130,58 @@ export async function runStagedArbitration({ task = {}, input = {}, documents, w
     ensureActive()
     const masked = redactor.mask(JSON.stringify(context))
     if (estimateTokens(prompt) + estimateTokens(masked) + options.maxTokens + CONTEXT_SAFETY_TOKENS > CONTEXT_WINDOW_TOKENS) throw stageError('本阶段上下文超过模型预算，请精简材料或按请求分项继续。', 'arbitration_output_truncated')
-    const response = await callModel(prompt, masked, { ...options,
-      ...(stage.startsWith('arbitration_review_') ? { maxTokens: input.mode === 'fast' ? 4096 : 8192 } : {}) })
+    const requestOptions = { ...options, maxTokens: OUTPUT_RESERVE_TOKENS }
+    const narrativeField = NARRATIVE_FIELDS[stage] || ''
+    let response
+    if (narrativeField && streaming) {
+      // 流式只在“面向用户的叙述”阶段启用；案件整理与复核是内部结构化阶段，保持一次性返回。
+      let content = ''
+      let finishReason = null
+      let usage = null
+      let sent = 0
+      let replaceNext = true
+      for await (const chunk of streaming(prompt, masked, requestOptions)) {
+        ensureActive()
+        if (chunk?.usage) usage = chunk.usage
+        if (typeof chunk?.content === 'string' && chunk.content) {
+          content += chunk.content
+          const text = readPartialJsonField(content, narrativeField)
+          if (text.length !== sent) {
+            await emit('arbitration.delta', replaceNext
+              ? { stage, field: narrativeField, content: text, replace: true }
+              : { stage, field: narrativeField, content: text.slice(sent) })
+            replaceNext = false
+            sent = text.length
+          }
+        }
+        if (typeof chunk?.finishReason === 'string') finishReason = chunk.finishReason
+        if (finishReason === 'stop') break
+      }
+      response = { content, finishReason, model: requestOptions.model, usage }
+    } else if (HEARTBEAT_STAGES[stage] && streaming) {
+      // 草稿阶段没有可直推的叙述字段，但它是全流程最长的一段：用流式连接换成
+      // 定期进度心跳，用户至少能看到"还在生成、已生成多少"，而不是整段静默。
+      let content = ''
+      let finishReason = null
+      let usage = null
+      let lastBeatAt = 0
+      const label = HEARTBEAT_STAGES[stage]
+      for await (const chunk of streaming(prompt, masked, requestOptions)) {
+        ensureActive()
+        if (chunk?.usage) usage = chunk.usage
+        if (typeof chunk?.content === 'string' && chunk.content) content += chunk.content
+        if (typeof chunk?.finishReason === 'string') finishReason = chunk.finishReason
+        const now = Date.now()
+        if (!lastBeatAt || now - lastBeatAt >= HEARTBEAT_INTERVAL_MS) {
+          lastBeatAt = now
+          await emit('arbitration.progress', { stage, label, generatedChars: content.length })
+        }
+        if (finishReason === 'stop') break
+      }
+      response = { content, finishReason, model: requestOptions.model, usage }
+    } else {
+      response = await callModel(prompt, masked, requestOptions)
+    }
     ensureActive()
     calls.push({ stage, model: response.model || options.model, usage: response.usage || null,
       promptHash: hash(prompt), inputHash: hash(masked), estimatedPromptTokens: estimateTokens(prompt) + estimateTokens(masked) + 64 })
@@ -132,6 +237,7 @@ export async function runStagedArbitration({ task = {}, input = {}, documents, w
     reviewNotes.push(...list(reviewed.notes).map(str))
     return errors
   }
+  await checkpoint('material-coverage', { ...materialSelection.coverage, indexed: (input.materialIndex || []).map((e) => e.blockId), mode: 'case-index-and-request-selection' })
   const compactSources = sources.map(({ originalText, ...source }) => source)
   const previousUsable = previous && previous.materialSignature === materialHash
     && previous.sources.every((source) => activeSourceIds.has(source.id))
@@ -140,7 +246,7 @@ export async function runStagedArbitration({ task = {}, input = {}, documents, w
   if (fakeLlm) return { schemaVersion: 2, kind: 'analysis', answer: '模型桩只验证流程，不生成法律结论。',
     claims: [], overallRisk: 'unknown', riskBasis: [], followUpQuestions: ['请提供仲裁请求和案件材料。'], defenseDraft: '', warnings }
   const extracted = await runStage('arbitration_case', '正在梳理请求与材料来源…', CASE_RECORD_PROMPT,
-    { message: userMessage, previousCaseRecord: previous, materialChanged: !previousUsable, sources: compactSources }, (value) => {
+    { message: userMessage, materialNotice: input.materialNotice || '', indexText, previousCaseRecord: previous, materialChanged: !previousUsable, sources: compactSources }, (value) => {
       if (!['update', 'question', 'draft'].includes(value.intent)) return ['必须返回用户意图intent']
       if (value.unchanged === true && previousUsable) return []
       if (!Array.isArray(value.requests) || !Array.isArray(value.facts)) return ['必须返回requests和facts数组']
@@ -258,8 +364,12 @@ export async function runStagedArbitration({ task = {}, input = {}, documents, w
         references, priorAnalysis: canReuse ? priorAnalysis : null, affectedRequestIds: affected,
         requiredRequestIds: analysisRecord.requests.map((request) => request.id), expectedClaimCount: analysisRecord.requests.length }, async (value) => {
         value.claims = list(value.claims).filter((claim) => claim && typeof claim === 'object')
+        // 先把“没有上传文件却写成已上传”的证据降级为拟补充，再进入校验；
+        // 纯文本问答没有上传件时，这是整案报错的直接原因。
+        reviewNotes.push(...downgradeUnavailableEvidence(value, analysisRecord))
         const issues = validateAnalysisSources(value, analysisRecord, new Set(references.map((ref) => ref.id)))
         value.claims = [...list(value.claims), ...unaffected].sort((a, b) => record.requests.findIndex((request) => request.id === a.requestId) - record.requests.findIndex((request) => request.id === b.requestId))
+        reviewNotes.push(...downgradeUnavailableEvidence(value, record))
         issues.push(...validateAnalysisSources(value, record, new Set(references.map((ref) => ref.id))), ...calculationIssues(value.calculations), ...inlineArithmeticIssues(value))
         if (str(value.defenseDraft)) issues.push('分析阶段不得生成整份文书')
         for (const claim of list(value.claims)) claim.riskLevel = level(claim.riskLevel)

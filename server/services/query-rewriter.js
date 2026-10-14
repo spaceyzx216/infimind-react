@@ -1,3 +1,4 @@
+import { MAX_MODEL_OUTPUT_TOKENS } from '../../src/utils/context-budget.js'
 /**
  * 追问检索词改写（conversational query rewriting）。
  *
@@ -122,7 +123,7 @@ export async function rewriteFollowUpQuery({ message, history = [] }) {
     raw = await chat(REWRITE_SYSTEM_PROMPT, `${context}\n\n最新提问：${message}`, {
       model: getFlashModel(),
       temperature: 0,
-      maxTokens: 256,
+      maxTokens: MAX_MODEL_OUTPUT_TOKENS,
       // 文本变换任务，不需要推理；开启只会平白增加延迟
       thinking: { type: 'disabled' }
     })

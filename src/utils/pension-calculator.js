@@ -107,7 +107,7 @@ export function validatePensionInput(raw) {
     n.paymentDivisor = n.retirement ? getTablePaymentMonths(n.retirement.ageMonths) : null
     n.divisorSource = '国发〔2005〕38号附件（整岁）'
     if (n.retirement && n.paymentDivisor === null && !blank(input.paymentDivisor)) {
-      n.paymentDivisor = number('paymentDivisor', '地方核定计发月数', { min: 1, max: 300, integer: true })
+      n.paymentDivisor = number('paymentDivisor', '地方核定计发月数', { min: 1, max: 300 })
       n.divisorSource = text('divisorSource', '非整岁计发月数的核定依据', 400)
     }
   }
@@ -166,7 +166,11 @@ function project(n, grade = n.grade) {
   const basic = averageIndex === null ? null : roundPensionMoney(retirementPensionBase * (1 + averageIndex) / 2 * totalMonths / 12 * .01)
   const personal = n.paymentDivisor === null ? null : roundPensionMoney(roundPensionMoney(account) / n.paymentDivisor)
   // Even deemed=0 does not prove there is no pre-reform contribution / transitional entitlement.
-  const transitional = n.transitionStatus === 'none' && n.deemedMonths === 0 ? 0 : null
+  // Coze coefficients apply only to the explicitly labelled compact estimate.
+  // The policy-based forecast still requires verified local transitional rules.
+  const transitional = n.mode === 'estimate' && n.deemedMonths > 0 && averageIndex !== null && n.transitionRate !== null
+    ? roundPensionMoney(retirementPensionBase * averageIndex * n.deemedMonths / 12 * n.transitionRate / 100)
+    : n.transitionStatus === 'none' && n.deemedMonths === 0 ? 0 : null
   const eligible = totalMonths >= n.retirement.minimumMonths
   const total = eligible && basic !== null && personal !== null && transitional !== null ? roundPensionMoney(basic + personal + transitional) : null
   return {
@@ -245,8 +249,21 @@ export function calculatePension(raw) {
   return result
 }
 
-// Compact mini-program-style scenario: no invented birth month, regional policy
-// limits or transitional coefficients. Shares the monthly arithmetic above.
+// Compact mini-program scenario. Deemed periods use explicitly disclosed Coze
+// assumptions, not verified regional rules. Shares the monthly arithmetic above.
+export function getPensionEstimateAssumptions(input) {
+  const hasDeemed = Number(input.deemedYears) > 0 || Number(input.deemedExtraMonths) > 0
+  if (!hasDeemed) return null
+  const employee = input.toolId === 'pension-calc1'
+  const historicalIndex = Number(input.pastAvgIndex) / 100
+  return {
+    source: 'coze-reference',
+    deemedIndex: employee ? Number.isFinite(historicalIndex) && historicalIndex > 0 ? historicalIndex : null : 1,
+    indexBasis: employee ? 'historical' : 'fixed',
+    transitionRate: employee ? 1.2 : 1.4
+  }
+}
+
 export function formatPensionDuration(months, age = false) {
   const years = Math.floor(months / 12)
   const extra = months % 12
@@ -296,7 +313,8 @@ export function validatePensionEstimate(raw) {
       values[field] = 0
       continue
     }
-    if (field === 'pastAvgIndex' && Number(input.actualYears) === 0 && Number(input.actualExtraMonths ?? 0) === 0 && !blank(input.actualYears) && blank(input[field])) {
+    const needsDeemedIndex = input.toolId === 'pension-calc1' && (Number(input.deemedYears) > 0 || Number(input.deemedExtraMonths) > 0)
+    if (field === 'pastAvgIndex' && !needsDeemedIndex && Number(input.actualYears) === 0 && Number(input.actualExtraMonths ?? 0) === 0 && !blank(input.actualYears) && blank(input[field])) {
       values[field] = null
       continue
     }
@@ -323,8 +341,8 @@ export function validatePensionEstimate(raw) {
   if (actualMonths + deemedMonths + remainingMonths === 0) fail('actualYears', '累计缴费年限为0，无法测算养老金。')
   values.paymentDivisor = null
   if (values.retirementAgeExtraMonths > 0 && !blank(input.paymentDivisor)) {
-    if (!/^\d+$/.test(String(input.paymentDivisor)) || Number(input.paymentDivisor) < 1 || Number(input.paymentDivisor) > 600) {
-      fail('paymentDivisor', '计发月数请填写1—600之间的整数；未查询到可留空，不要自行取整或插值。')
+    if (!/^\d+(\.\d+)?$/.test(String(input.paymentDivisor).trim()) || Number(input.paymentDivisor) < 1 || Number(input.paymentDivisor) > 600) {
+      fail('paymentDivisor', '计发月数请填写社保确认的1—600之间数值，可含小数；未查询到可留空，不要自行取整或插值。')
     } else values.paymentDivisor = Number(input.paymentDivisor)
   }
   return { valid: errors.length === 0, errors, values }
@@ -337,6 +355,7 @@ export function calculatePensionEstimate(raw) {
   const recordMonth = v.recordMonth
   const selectedMonth = formatMonth(monthIndex(recordMonth) + elapsedMonths)
   const thresholdYear = Number(selectedMonth.slice(0, 4))
+  const assumedParameters = getPensionEstimateAssumptions(v)
   const n = {
     toolId: v.toolId, mode: 'estimate', recordIndex: monthIndex(recordMonth),
     indexBase: v.localAvgWage, pensionBase: v.localAvgWage,
@@ -344,7 +363,8 @@ export function calculatePensionEstimate(raw) {
     contributionBase: v.toolId === 'pension-calc1' ? v.currentMonthlyWage : roundPensionMoney(v.localAvgWage * v.grade / 100),
     employerRate: null, grade: v.grade,
     actualMonths: v.actualYears * 12 + v.actualExtraMonths, deemedMonths: v.deemedYears * 12 + v.deemedExtraMonths,
-    historicalIndex: v.pastAvgIndex === null ? null : v.pastAvgIndex / 100, deemedIndex: null,
+    historicalIndex: v.pastAvgIndex === null ? null : v.pastAvgIndex / 100,
+    deemedIndex: assumedParameters?.deemedIndex ?? null, transitionRate: assumedParameters?.transitionRate ?? null,
     indexMethod: 'weighted', transitionStatus: v.deemedYears === 0 && v.deemedExtraMonths === 0 ? 'none' : 'unknown',
     accountBalance: v.accountBalance, elapsedMonths, paidMonths: elapsedMonths,
     indexGrowth: v.wageGrowth, pensionGrowth: v.wageGrowth,
@@ -355,7 +375,6 @@ export function calculatePensionEstimate(raw) {
   const scenario = project(n)
   const meetsYears = scenario.projection.totalMonths >= n.retirement.minimumMonths
   const pending = []
-  if (n.deemedMonths > 0) pending.push('你填写了视同缴费年限。还需核对当地视同缴费指数和过渡待遇，因此本次仅展示可算分项，暂不计算养老金参考合计。')
   if (n.paymentDivisor === null) pending.push('预计退休年龄包含月份，尚未填写社保口径的计发月数。可以先查看基础养老金和缴费预测，个人账户养老金及参考合计暂不计算。')
   if (!meetsYears) pending.push(`按本次预测，累计缴费${formatPensionDuration(scenario.projection.totalMonths)}，少于${thresholdYear}年一般最低缴费年限${formatPensionDuration(n.retirement.minimumMonths)}；还差${n.retirement.minimumMonths - scenario.projection.totalMonths}个月，暂不计算参考合计。实际退休方式和领取资格仍需向社保核对。`)
   const assumptions = [
@@ -364,20 +383,26 @@ export function calculatePensionEstimate(raw) {
     `参保地上年工资${v.localAvgWage}元，在本次一般情景中同时用作指数基准和计发基数；未匹配地方政策，未自动核验或约束缴费基数上下限。`,
     `社平工资年增长${v.wageGrowth}%，账户年记账利率${v.accountInterest}%，${v.toolId === 'pension-calc1' ? `缴费工资年增长${v.futureWageGrowth}%` : `保持${v.grade}%缴费档次`}；均为情景假设。`,
     '使用等效月利率，先计息后月末入账；企业职工个人缴费8%，灵活就业全部缴费20%，个人账户入账8%。单位缴费不在本次结果内。',
-    '平均指数按实际、视同及未来缴费期间加权；未来工资与社平工资增长不同时，未来指数逐月变化。视同指数未知时不默认为1。',
+    '平均指数按实际、视同及未来缴费期间加权；未来工资与社平工资增长不同时，未来指数逐月变化。',
+    ...(assumedParameters ? [
+      `本次按小程序假设估算：视同缴费指数假设为${assumedParameters.deemedIndex}（${assumedParameters.indexBasis === 'historical' ? '沿用填写的历史平均指数' : '固定假设为1'}），过渡系数假设为${assumedParameters.transitionRate}%；这些参数未按参保地政策核定。`,
+      '假设过渡性养老金＝预测计发基数×综合平均指数×视同缴费年限×假设过渡系数。此公式及其适用年限仅复现小程序假设，不代表当地过渡待遇规则。'
+    ] : []),
     '预测首月使用填写的工资基数，从第二个月起按年增长率折算并平滑增长；这不是当地实际年度调整或补差规则。',
-    `计发月数：${n.paymentDivisor ?? '待查询'}；${v.retirementAgeExtraMonths === 0 ? '按整岁退休年龄查国家表' : '采用用户提供的社保口径，不取整、不插值'}。金额到分，基础与账户分项先舍入后相加。`,
+    `计发月数：${n.paymentDivisor ?? '待查询'}；${v.retirementAgeExtraMonths === 0 ? '按整岁退休年龄查国家表' : '采用用户提供的社保口径，不取整、不插值'}。金额到分，各养老金分项先舍入后相加。`,
     `以情景结束年份${thresholdYear}年作最低缴费年限参考；这不是退休或领取资格判断，弹性退休、特殊提前退休需另核对。`,
-    '参考合计仅包含基础养老金及个人账户养老金，不包含过渡待遇、补贴、企业年金或其他地方待遇；有视同缴费时暂不合计。'
+    assumedParameters
+      ? '假设参考合计包含基础养老金、个人账户养老金及按小程序假设计算的过渡性养老金，不包含补贴、企业年金或其他地方待遇；不是社保核定金额。'
+      : '参考合计仅包含基础养老金及个人账户养老金，不包含过渡待遇、补贴、企业年金或其他地方待遇。'
   ]
   return {
-    ruleVersion: `${PENSION_RULE_VERSION}-simple-v2`, toolId: v.toolId, mode: 'estimate',
+    ruleVersion: `${PENSION_RULE_VERSION}-simple-v3-coze-assumptions`, toolId: v.toolId, mode: 'estimate',
     inputSnapshot: v,
     parameters: { recordMonth, referenceYear: v.referenceYear, selectedMonth },
     contributions: contributions(n.contributionBase, n), ...scenario,
     eligibility: { meetsContributionYears: meetsYears, thresholdYear, minimumMonths: n.retirement.minimumMonths },
-    paymentDivisor: n.paymentDivisor, pending, assumptions,
-    status: pending.length ? 'partial' : 'estimated',
+    paymentDivisor: n.paymentDivisor, pending, assumptions, assumedParameters,
+    status: pending.length ? 'partial' : assumedParameters ? 'assumed' : 'estimated',
     sources: PENSION_SOURCES.map((source) => ({ ...source })),
     comparison: v.toolId === 'pension-calc2' ? [...new Set([60, 100, 200, 300, v.grade])].sort((a, b) => a - b).map((grade) => {
       const base = roundPensionMoney(n.indexBase * grade / 100)

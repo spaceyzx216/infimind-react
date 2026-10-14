@@ -7,7 +7,7 @@
   background: #f8f8f9;
 }
 
-.lca-history-copy { display: grid; flex: 1; min-width: 0; gap: 4px; }
+.lca-history-copy { flex: 1; min-width: 0; }
 .lca-history-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lca-history-list { min-height: 0; flex: 1; align-content: start; overflow-y: auto; }
 .lca-history-list small, .lca-history-empty, .lca-retention-note { color: #929297; font-size: 12px; }
@@ -33,28 +33,13 @@
 .lca-delete-actions button.danger { color: #fff; border-color: #b42318; background: #b42318; }
 .lca-delete-actions button:disabled { opacity: .6; cursor: wait; }
 
-.labor-contract-analysis .lca-content { width: min(860px, calc(100% - 64px)); padding-top: 48px; }
-.lca-intro { padding: 8px 0; }
-.lca-intro > p { max-width: 800px; margin-bottom: 30px; font-size: 17px; line-height: 1.9; }
-.lca-intro .starter-prompts { margin-top: 26px; }
-.lca-chat-turn { margin: 0 0 42px; }
-.lca-user-turn { display: grid; justify-items: end; gap: 8px; margin: 0 0 30px; text-align: right; }
-.lca-user-turn > span { max-width: 78%; padding: 11px 15px; border-radius: 14px; background: #f3f3f4; line-height: 1.7; overflow-wrap: anywhere; }
-.lca-user-turn > small { max-width: 78%; padding: 7px 10px; border: 1px solid #e8e8ea; border-radius: 9px; color: #666; background: #fafafa; overflow-wrap: anywhere; }
-.lca-assistant-turn { max-width: none; }
-.lca-turn-meta { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; color: #333; font-size: 14px; }
-.lca-turn-meta span { color: #a0a0a5; font-size: 12px; }
 .lca-followup-answer { color: #303033; font-size: 15px; line-height: 1.85; overflow-wrap: anywhere; }
 .lca-followup-answer p { margin: 0 0 12px; font-size: inherit; }
 .lca-followup-answer ul, .lca-followup-answer ol { margin: 8px 0 14px; padding-left: 24px; }
 .lca-followup-answer > small { display: block; margin-top: 14px; color: #8e8e94; }
 .lca-source-expired { padding: 11px 14px; border: 1px solid #f0e0cf; border-radius: 10px; color: #865c30; background: #fffaf4; font-size: 13px; line-height: 1.7; }
 
-.labor-contract-analysis .lca-composer { min-height: 112px; }
 .labor-contract-analysis .composer-wrap { flex-direction: column; align-items: center; gap: 8px; }
-.labor-contract-analysis .labor-disclaimer { display: flex; width: min(860px, 100%); align-items: center; justify-content: center; gap: 6px; margin: 0; color: #a5a5ab; font-size: 11.5px; line-height: 1.6; text-align: center; }
-.labor-contract-analysis .labor-disclaimer svg { flex: 0 0 auto; }
-.labor-contract-analysis .lca-chat-input { min-height: 48px; max-height: 180px; resize: vertical; }
 .lca-analysis-options { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 2px 0 10px; }
 .lca-analysis-options label { display: inline-flex; align-items: center; gap: 7px; color: #66666b; font-size: 12px; }
 .lca-analysis-options select, .lca-file-chips select { min-height: 30px; max-width: 240px; padding: 4px 8px; border: 1px solid #e2e2e5; border-radius: 8px; color: #3d3d41; background: #fff; font: inherit; }
@@ -145,16 +130,7 @@
 .lca-supporting-materials span { padding: 4px 7px; border-radius: 6px; background: #f6f6f6; }
 .lca-suggested-clause { padding: 10px 12px; border-radius: 8px; background: #f7f8fa; }
 .lca-result-warnings strong { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
-.lca-report-pane { border-left: 1px solid #ededee; }
-.lca-report-pane .document-header > div { gap: 12px; }
-.lca-report-pane .document-header small { color: #929297; font-size: 12px; }
-.lca-report-heading { max-width: 980px; margin: 0 auto 24px; }
-.lca-report-heading > span { color: #df6d30; font-size: 12px; }
-.lca-report-heading h1 { margin: 7px 0 5px; font-size: 24px; line-height: 1.4; overflow-wrap: anywhere; }
-.lca-report-heading p { color: #999; font-size: 12px; line-height: 1.7; }
 .lca-report-waiting { display: flex; align-items: center; gap: 9px; max-width: 980px; margin: 0 auto; padding: 14px 16px; border-radius: 10px; color: #777; background: #f7f7f8; font-size: 13px; }
-.lca-open-report-card { width: min(590px, 100%); min-height: 86px; margin-top: 14px; }
-.lca-open-report-card > svg { color: #b66b35; }
 .lca-stream-progress { margin-top: 8px !important; color: #8d8d92; font-size: 12px !important; }
 
 /* Read the report as a guided review, with evidence tied to the selected finding. */
@@ -246,23 +222,11 @@
 .lca-evidence-disclaimer { margin: 11px 0 0; color: #56565a; font-size: 11px; line-height: 1.7; }
 
 @media (max-width: 760px) {
-  .labor-contract-analysis .lca-content { width: calc(100% - 30px); padding-top: 28px; }
   .lca-facts, .lca-topic-grid { grid-template-columns: 1fr; }
   .lca-score, .lca-result-section { padding: 15px; }
   .lca-composer .composer-tools > span { display: none; }
   .lca-history-row > .lca-history-delete { opacity: 1; }
-  .lca-user-turn > span, .lca-user-turn > small { max-width: 92%; }
-  .labor-contract-analysis.document-expanded { position: relative; display: block; min-height: 100dvh; overflow: hidden; }
-  .labor-contract-analysis.document-expanded .document-column { display: flex; width: 100%; height: 100dvh; min-height: 100dvh; padding-bottom: 128px; box-sizing: border-box; }
-  .labor-contract-analysis.document-expanded .document-header { position: sticky; top: 0; z-index: 20; }
-  .labor-contract-analysis.document-expanded .document-header > span { display: block; }
-  .labor-contract-analysis.document-expanded .document-header > div small { display: none; }
-  .labor-contract-analysis.document-expanded .document-column .document-scroll { flex: 1; min-height: 0; padding: 30px 16px 170px; }
-  .labor-contract-analysis.document-expanded .chat-column { position: fixed; z-index: 30; right: 0; bottom: 0; left: 0; display: flex; width: 100%; height: auto; min-width: 0; min-height: 0; pointer-events: none; border: 0; background: transparent; }
-  .labor-contract-analysis.document-expanded .chat-column > .chat-header,
-  .labor-contract-analysis.document-expanded .chat-column > .conversation { display: none; }
-  .labor-contract-analysis.document-expanded .chat-column > .composer-wrap { position: fixed; z-index: 31; right: 0; bottom: 0; left: 0; display: flex; width: 100%; min-width: 0; padding: 10px 12px 14px; pointer-events: none; }
-  .labor-contract-analysis.document-expanded .chat-column > .composer-wrap .composer { pointer-events: auto; }
+
 }
 
 @media (max-width: 1500px) {
@@ -344,3 +308,20 @@
 .lca-context-popover dl > div { display: flex; justify-content: space-between; gap: 12px; margin: 10px 0; font-size: 13px; }
 .lca-context-popover dd { margin: 0; color: #9999a1; }
 .lca-context-popover p { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid #f0f0f2; color: #9999a1; font-size: 12px; line-height: 1.65; }
+
+/* The shared contract-review shell owns chat, composer and document layout. */
+.labor-contract-analysis .assistant-status { display: flex; align-items: center; gap: 7px; }
+.labor-contract-analysis .lca-classification-status { margin: 6px 0; font-size: 12px; }
+.labor-contract-analysis .lca-document-status { max-width: 980px; margin: 0 auto 24px; color: var(--chat-muted); font-size: 14px; }
+.labor-contract-analysis .pending-files > span > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.labor-contract-analysis .pending-files small { color: var(--chat-muted); white-space: nowrap; }
+.labor-contract-analysis .document-header button:disabled { opacity: .45; cursor: not-allowed; }
+.labor-contract-analysis .lca-analysis-reminder { margin-top: 14px; color: var(--chat-muted); font-size: 12px; line-height: 1.7; }
+.labor-contract-analysis .lca-analysis-reminder summary { cursor: pointer; }
+.labor-contract-analysis .lca-analysis-reminder p { margin: 8px 0 0; font-size: inherit; line-height: inherit; }
+.labor-contract-analysis .lca-history-item { min-height: 56px; }
+
+.labor-contract-analysis .user-turn > p { max-width: 100%; overflow-wrap: anywhere; box-sizing: border-box; }
+/* Keep the shared reader and cards legible in the workspace dark theme. */
+.app-workspace[data-theme=dark] .labor-contract-analysis :is(.contract-document, .contract-body, .open-document-card, .rounds-panel-title, .round-label) { color: var(--fafee-ink); }
+.app-workspace[data-theme=dark] .labor-contract-analysis :is(.local-edit-card, .compact-revision-card) { color: var(--fafee-ink); background: var(--fafee-surface-soft); border-color: var(--fafee-line); }

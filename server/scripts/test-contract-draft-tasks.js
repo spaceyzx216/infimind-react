@@ -12,6 +12,7 @@ import { createTaskProcessor } from '../services/task-processor.js'
 import { createTaskQueue } from '../services/task-queue.js'
 import { createTaskService } from '../services/task-service.js'
 import { getContractTypeProfile } from '../prompts/contract-draft-types.js'
+import { updateDraftInBlocks } from '../services/draft-block-update.js'
 import { resolveDraftAction, resolveDraftIntent, runContractDraft } from '../workflows/contract-draft.js'
 
 process.env.TASK_FAKE_LLM = 'true'
@@ -163,6 +164,71 @@ try {
   const firstCheckpoints = new Set(taskService.listCheckpoints(firstCreated.taskId).map((item) => item.stage))
   for (const stage of ['parsing', 'contract_type', 'generation', 'persistence']) assert.equal(firstCheckpoints.has(stage), true, `缺少 ${stage} 检查点`)
 
+  const fullReplayResponse = await request(`/api/tasks/${firstCreated.taskId}/events?after=0`, { headers: { Accept: 'text/event-stream' } })
+  const fullReplay = parseSse(await fullReplayResponse.text())
+  assert.equal(fullReplay.filter((item) => item.event === 'draft.delta').map((item) => item.data.content).join(''), firstTask.result.draftText, '任务事件回放必须包含完整正文片段')
+  assert.ok(fullReplay.findIndex((item) => item.event === 'draft.delta') < fullReplay.findIndex((item) => item.event === 'draft.complete'), '正文片段应在完成之前发出')
+
+  // Exercise real streaming control flow with deterministic chunks and no upstream API.
+  const streamedEvents = []
+  const checkpoints = new Map()
+  const sourceChunks = ['# 流式合同\n\n', '## 待确认信息\n- [ ] 确认主体\n\n', '## 合同正文\n\n双方依据书面约定履行交付、验收及付款义务。']
+  const streamingOptions = {
+    task: { id: 'streaming-unit', productId: 'contract-draft', prompt: '起草一份合同' },
+    fakeLlm: false,
+    classifyType: async () => ({ profile: getContractTypeProfile('general_contract'), confidence: 'low' }),
+    emit: async (event, data) => { streamedEvents.push({ event, data }) },
+    checkpoint: async (stage, result) => { checkpoints.set(stage, { result }) },
+    getCheckpoint: (stage) => checkpoints.get(stage),
+    streamFn: async function * () {
+      yield { content: sourceChunks[0] }
+      assert.equal(streamedEvents.filter((item) => item.event === 'draft.delta').map((item) => item.data.content).join(''), sourceChunks[0], '首段在模型完成前可用')
+      yield { content: sourceChunks[1] }
+      yield { content: sourceChunks[2], finishReason: 'stop' }
+    }
+  }
+  const streamedDraft = await runContractDraft(streamingOptions)
+  assert.equal(streamedEvents.filter((item) => item.event === 'draft.delta').map((item) => item.data.content).join(''), streamedDraft.draftText, '末尾缓冲必须完整发送且不重复')
+  assert.equal(streamedDraft.draftText, sourceChunks.join('').trim())
+  streamedEvents.length = 0
+  await runContractDraft({ ...streamingOptions, streamFn: async function * () { throw new Error('检查点恢复不应调用模型') } })
+  assert.equal(streamedEvents.filter((item) => item.event === 'draft.delta').map((item) => item.data.content).join(''), streamedDraft.draftText, '完整检查点恢复应重新提供正文')
+
+  let cancelledStreaming = false
+  const cancelledEvents = []
+  await assert.rejects(runContractDraft({
+    ...streamingOptions, getCheckpoint: () => null,
+    isCancellationRequested: () => cancelledStreaming,
+    emit: async (event, data) => { cancelledEvents.push({ event, data }) },
+    streamFn: async function * () {
+      yield { content: sourceChunks[0] }
+      cancelledStreaming = true
+      yield { content: sourceChunks[1], finishReason: 'stop' }
+    }
+  }), /cancel|取消/i)
+  assert.equal(cancelledEvents.filter((item) => item.event === 'draft.delta').map((item) => item.data.content).join(''), sourceChunks[0], '取消后不得继续发送正文')
+  assert.equal(cancelledEvents.some((item) => item.event === 'draft.complete'), false)
+
+  const blockCheckpoints = new Map()
+  const blockEvents = []
+  const blockSource = '# 分块合同\n\n' + '双方应按约定履行义务。'.repeat(1500)
+  const blockOptions = {
+    currentDraft: blockSource, instruction: '保持原文', ensure: () => {},
+    emit: async (event, data) => { blockEvents.push({ event, data }) },
+    checkpoint: async (stage, result) => { blockCheckpoints.set(stage, { result }) },
+    getCheckpoint: (stage) => blockCheckpoints.get(stage),
+    streamFn: async function * (_system, input) {
+      const text = JSON.parse(input).block.text
+      yield { content: JSON.stringify({ complete: true, text }), finishReason: 'stop' }
+    }
+  }
+  assert.equal(await updateDraftInBlocks(blockOptions), blockSource)
+  assert.ok(blockEvents.filter((item) => item.event === 'draft.delta').length > 1, '长合同按已完成块逐段显示')
+  assert.equal(blockEvents.filter((item) => item.event === 'draft.delta').map((item) => item.data.content).join(''), blockSource)
+  blockEvents.length = 0
+  assert.equal(await updateDraftInBlocks({ ...blockOptions, streamFn: async function * () { throw new Error('已完成块无需再调用模型') } }), blockSource)
+  assert.equal(blockEvents.filter((item) => item.event === 'draft.delta').map((item) => item.data.content).join(''), blockSource, '分块检查点恢复输出全部正文且不重复')
+
   const inputRow = database.prepare('SELECT input_json FROM tasks WHERE id = ?').get(firstCreated.taskId)
   const persistedInput = JSON.parse(inputRow.input_json)
   assert.equal(persistedInput.operation, 'create')
@@ -262,6 +328,16 @@ try {
   assert.equal(sseEvents.some((item) => item.event === 'chat.delta'), true)
   assert.equal(sseEvents.some((item) => item.event === 'draft.complete'), false)
   assert.equal(sseEvents.some((item) => item.event === 'done'), true)
+
+  const snapshotChatResponse = await request('/api/contract-draft', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ message: '请解释当前付款条款的含义和风险。', history: [], currentDraft: updatedTask.result })
+  })
+  assert.equal(snapshotChatResponse.status, 200)
+  const snapshotChatEvents = parseSse(await snapshotChatResponse.text())
+  assert.equal(snapshotChatEvents.some((item) => item.event === 'chat.delta'), true, 'SSE fallback must recognize the separate mandatory draft without a history marker')
+  assert.equal(snapshotChatEvents.some((item) => item.event === 'draft.complete'), false)
 
   const legacyDraftResponse = await request('/api/contract-draft', {
     method: 'POST',
@@ -396,7 +472,7 @@ try {
     draftWorkflow: (options) => runContractDraft({
       ...options,
       classifyType: async () => ({ profile: getContractTypeProfile('general_contract'), confidence: 'low', source: 'test' }),
-      streamFn: async function * () { yield { content: streamValue } }
+      streamFn: async function * () { yield { content: streamValue, finishReason: 'stop' } }
     })
   })
   const emptyModelTask = taskService.createTask({

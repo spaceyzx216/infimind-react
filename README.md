@@ -32,6 +32,10 @@
 
 合同审查不是一次简单的“把整段交给大模型重写”。系统将模型能力和代码级约束结合：模型负责理解、判断和起草，服务端负责原文定位、跨轮去重、ID 完整性、修订边界和安全回退。最终输出的正文标记与修订卡片按编号一一对应，完整条款默认折叠，便于审阅长合同。
 
+批注稿入口依据实际原文/修订数据展示，不依赖历史消息的阶段标记或风险数量；已完成历史若缺少文档数据，会从所属任务补取持久结果。“分析面板”设置关闭时仍按既有设置同时隐藏入口和侧栏。页面与Word可读导出保留原文物理行号，文件分隔行仅在显示时隐藏，避免批注错位。明确不匹配的模型修订ID不能按数组顺序硬套到另一条问题；旧格式没有ID时仍兼容位置配对。
+
+批注稿里每条批注都可就地人工编辑（处理方式、建议文字、批注说明、完整条款建议），标“已人工修改”并可单条恢复AI原稿或全部恢复。编辑只覆盖意见字段，`lineStart`/`quoteSpans` 等服务端定位数据不变，因此改写后批注仍钉在原句上。页面渲染、复制、“下载 Word”三条路径共用同一份 `buildDisplayRevisions(revisions, annotationEdits)`，复制与下载导出的始终是最后确认的版本。编辑按批注ID（`findingId`/`editId`）保存：商业合同审查随对话消息落在本地历史里；劳动合同/派遣分析的报告结果在服务端只读，编辑按报告任务ID存在浏览器本地存储，刷新和切换历史后仍在。服务端批注ID是位置序号（`revision-group-N-local-M`/`finding-N-local-M`），同一任务重跑可能换条款，因此每条编辑同时记录写入时的锚点指纹（处理方式+行号+原片段），锚点对不上就丢弃该人工意见，不把上一版意见套到新条款上；标题栏“已人工修改N条”只统计仍然生效的编辑。回归见 `npm run test:annotation-edits`、`npm run test:annotation-edits-ui`（浏览器回归，需先 `npm run dev`）。
+
 ## 核心能力
 
 | 能力 | 说明 |
@@ -47,6 +51,7 @@
 | 编号就近批注 | 正文浅橙标记、编号和对应修订卡一一关联，完整说明和整条修订默认收起 |
 | 确定性安全回退 | Agent 输出缺失、越界或不合规时，回退到已验证的 finding 与 quote span，不让错误锚点进入页面 |
 | Word 导出 | 导出的 `.doc` 延续页面编号、局部高亮和就近批注结构 |
+| 批注人工编辑 | 每条批注可就地改写处理方式与意见文字，标记“已人工修改”，可恢复AI原稿；复制与 Word 导出取最终确认版本 |
 | 多会话并行 | 每个对话独立维护请求状态；审查在后台任务中继续执行，用户可切换或新建会话同时发起其他请求 |
 | 生成中停止与插队 | 发送与停止共用同一按钮：空闲发送、生成中空输入停止、生成中已有输入则停止上一轮并立即发送；半截内容标记为未完成并进入下一轮上下文 |
 | 按任务恢复 | 刷新或重新打开历史对话时，按关联的 `taskId` 恢复排队、运行、取消、失败与成功状态，不依赖页面内存 |
@@ -249,10 +254,12 @@ Vite 会把 `/api` 代理到 `LOCAL_SERVER_PORT`，前后端端口必须保持�
 | 工具 / 阶段 | 当前行为 |
 | --- | --- |
 | 劳动合同 / 派遣 | 快速关闭思考；深度仅审查、最终核对开启 `low`，筛选、评分、归并、依赖判断与修订使用快速。工作单元120/240秒，最多三次尝试，底层 `maxAttempts:1`，耗尽后不再由任务层重跑整轮 |
-| 仲裁 v2 | 快速关闭思考，深度为 `high`；普通阶段输出16,384/32,768 token，独立复核4,096/8,192；请求180/300秒。底层 `maxAttempts:1`，暂态失败交任务队列，结构/一致性失败每阶段只修补一次 |
+| 仲裁 v2 | 快速关闭思考，深度为 `high`；生成与独立复核均使用393,216 token上限；请求180/300秒。底层 `maxAttempts:1`，暂态失败交任务队列，结构/一致性失败每阶段只修补一次 |
 | 合同起草 | 意图判断、类型识别、完整生成及 SSE 对话按模式关闭/开启 `low`；完整生成和 SSE 回答传120/240秒，其它分类调用沿用封装默认期限 |
-| 商业合同审查 | 结构分析、三轮审查未显式传思考开关，沿用封装默认 enabled/high；因此当前快速选项不代表主 Agent 全程关闭思考。归并/修订新增可选参数以支持劳动工作流，原调用继续兼容 |
+| 商业合同审查 | 快速明确关闭思考；深度风险审查使用 `high`，结构分析与修订使用 `low`，归并及结构汇总关闭思考。未完成块有限重试后拆小，修订每批最多4组，保存检查点；失败不转成零风险成功 |
 | 用工咨询 | 主回答两种模式均 enabled，强度为 fast=`high`、thinking=`max`；标题提炼和查询改写单独禁用思考。这是既有行为，不能因共用输入按钮而写成全部统一 |
+
+各工具的生产模型调用统一使用 `MAX_MODEL_OUTPUT_TOKENS=393216`；该值是上限，按实际生成量计费，不能保证没有网络或超时中断。上下文容量按1,048,576 token估算，并为输出上限及安全余量预留空间。旧 `LABOR_MAX_TOKENS` 不再覆盖咨询输出预算。共享历史按容量保留完整轮次，不按12条/每条6000字符裁剪；起草旧草稿快照保留全文，更新时完整原稿放入本轮事实材料，超过上下文时逐块修订并复用检查点。JSON请求和multipart文本字段上限为12MB，超限拒绝而不是静默截断；原文件限制不变。
 
 单次上下文与累计用量分别记录：仲裁 `contextUsage.promptTokens` 是最近阶段单次输入，`usage` / 阶段用量是多次调用累计；公共控件优先使用前者，旧工具回退原 `prompt_tokens`，没有实际用量时仅作估算（不含本轮附件及检索）。界面1M容量来自当前代码常量，不是所有工具每次都读取1M，也不是供应商额度承诺。
 
@@ -364,6 +371,7 @@ npm run evaluate:knowledge-base
 | `GET` | `/api/tasks/:taskId` | JSON | 获取任务状态、阶段摘要、结果或失败原因 |
 | `GET` | `/api/tasks/:taskId/events?after=<seq>` | SSE | 回放并持续订阅任务事件；断线后用递增序号补拉 |
 | `POST` | `/api/tasks/:taskId/cancel` | JSON | 取消当前用户的排队或运行中任务 |
+| `POST` | `/api/tasks/:taskId/retry` | JSON | 继续当前用户已失败的商业审查，复用原任务检查点；重复继续或同对话有活动任务返回409 |
 | `POST` | `/api/contract-finalize` | SSE | 根据服务端会话中选中的 finding 生成修订稿；当前前端主流程未调用 |
 
 除健康检查和 `/api/auth/*` 外，所有 `/api` 接口都要求有效的 `Authorization: Bearer <JWT>`；未登录返回 `401`。
@@ -391,7 +399,7 @@ npm run evaluate:knowledge-base
 | `stage.start` / `stage.progress` / `stage.complete` | 阶段状态与进度 |
 | `analysis.delta` | Agent 1 结构分析增量文本 |
 | `review.round` | 三轮审查的开始、结束和新增问题快照 |
-| `review.delta` | 归并后的最终审查报告 |
+| `review.delta` | 第一轮文字正文；`round:1`、`replace:true`、`firstRoundReport` 在首轮结束前输出，后续轮次通过 `review.round` 更新 |
 | `templates.found` | 本次检索命中的证据元数据 |
 | `review.original` | 原文与可信 ReviewSession 摘要 |
 | `rewrite.result` | 结构化 revisions、localized edits 与统计信息 |
@@ -411,7 +419,7 @@ npm run evaluate:knowledge-base
 
 入口 `/tools/labor-contract`，任务接口 `POST /api/tasks/labor-contract-analysis`，产品标识 `labor-contract-analysis`。支持普通劳动合同、派遣劳动合同和派遣协议；可只上传主文件，也可上传配套材料。后台预解析并建议类型，前端按建议提交 `documentTypes`；不展示文件分类确认或检查项问卷。派遣协议仍需在现有下拉框选择代表派遣单位（`dispatch_unit`）或用工单位（`using_unit`），并非后台已经自动确认企业归属。附件不能单独作主文件，普通合同与派遣材料混传会拒绝，一次仅允许一份派遣协议。
 
-新任务工作流为 `labor-contract-analysis-v3`，完整分析结果 `schemaVersion:3`；普通追问结果仍为 `schemaVersion:2`、`kind:followup`，不能把工作流版本当作所有结果的结构版本。完整分析保留 `analysisType`、主题覆盖、风险、`reviewRounds`、原文、修订及批注状态。`analyze` 为初次上传；`followup` / `reanalyze` 引用同会话 `sourceTaskId` 与已完成 `reportTaskId`；`restart-analysis` 用保留正文恢复未完成分析。旧任务可用仍存在的正文检查点兼容，无法从旧报告凭空恢复已清理原文。`unsupported` 类型仍阻止分析提交；补充材料说明后点击原发送按钮，后台只识别一次，成功后同次发送继续分析；不显示额外识别按钮，沿用分类接口的可选clarification字段（最多16000字符），不新增必填问卷。说明和正文一起掩码发送，说明仅作路由线索；支持类型需可核对的原文片段，不能凭说明替代正文。识别成功更新旧unsupported角色；空白/坏文件仍需更换，仍无法识别的材料应移除。
+新任务工作流为 `labor-contract-analysis-v3`，完整分析结果 `schemaVersion:3`；普通追问结果仍为 `schemaVersion:2`、`kind:followup`，不能把工作流版本当作所有结果的结构版本。完整分析保留 `analysisType`、主题覆盖、风险、`reviewRounds`、原文、修订及批注状态。两类合同审查任务新增可恢复的 `firstRoundReport`（基本信息及仅首轮问题的完整正文）；聊天正文使用该字段，首轮结束后显示三轮进度，后续发现保留在轮次面板和完整报告/原文批注中；旧结果无此字段时兼容原报告。`analyze` 为初次上传；`followup` / `reanalyze` 引用同会话 `sourceTaskId` 与已完成 `reportTaskId`；`restart-analysis` 用保留正文恢复未完成分析。旧任务可用仍存在的正文检查点兼容，无法从旧报告凭空恢复已清理原文。`unsupported` 类型仍阻止分析提交；补充材料说明后点击原发送按钮，后台只识别一次，成功后同次发送继续分析；不显示额外识别按钮，沿用分类接口的可选clarification字段（最多16000字符），不新增必填问卷。说明和正文一起掩码发送，说明仅作路由线索；支持类型需可核对的原文片段，不能凭说明替代正文。识别成功更新旧unsupported角色；空白/坏文件仍需更换，仍无法识别的材料应移除。
 
 工作流复用合同审查的归并、修订、原文定位、批注组件和任务平台。普通劳动合同九项、派遣协议八项是后台最低覆盖主题，不是前端报告表格，也不是固定分批次数。
 
@@ -419,7 +427,7 @@ npm run evaluate:knowledge-base
 - 审查只输出风险、可信原文定位、依据和简短建议；归并后生成修订。每批最多四组、最多两批独立并行；重叠或依赖修订同批或串行，限流/连接重置后剩余修订转串行。
 - 单工作单元最多三次尝试，快速请求120秒、深度请求240秒；网络重试不多层叠加。完成标记缺失不算审查完成；无进展续写转覆盖核对，持续失败保留成果并明确未完成。
 - 快速模式真正关闭思考；深度仅审查和最终核对开启 `low`，筛选、评分、归并及修订使用快速模式。用 `model.progress` 区分连接/思考数据与有效问题增加，累计结果写入既有检查点。
-- 前端始终是一份完整原文，修订批次完成后按稳定标识发送累计快照。刷新恢复当前任务，切换历史滚到末尾，最终批注完成自动打开右栏；用户主动关闭时不强制重开。复制/下载沿用完整批注稿。
+- 前端始终是一份完整原文，修订批次完成后按稳定标识发送累计快照。刷新恢复当前任务，切换历史滚到末尾，最终批注完成自动打开右栏；用户主动关闭时不强制重开。复制/下载沿用完整批注稿，并取人工确认后的最终意见（编辑按报告任务ID存在浏览器本地存储，不写回服务端任务结果）。
 - 原文定位不猜测：同段省略引用仅在顺序一致且唯一匹配时恢复真实连续原文；文件头是条款边界，不能把主协议批注延伸到下一份配套文件。无可定位原文的问题保留在报告中。
 - 用工单位分析配套派遣劳动合同时保留原文并给核对提醒，不能代替派遣单位修改劳动合同。程序校验期限日期、已约定月度日期及明确主体下的职业健康职责；最终模型检查只修复有当前修订文本证据的冲突组，不将配套文件旧缺陷当作修订冲突。
 
@@ -437,7 +445,7 @@ npm run evaluate:knowledge-base
 
 2026-10-05第二轮无按钮流程复验：劳动合同/派遣完整模型桩、任务与中断、共享账号/工作台和仲裁页面、lint及临时构建通过；Edge新增原按钮自动继续、类型/空白/解析/服务失败区分、两种派遣视角/未选拦截/单独派遣劳动合同不显示下拉。lint仍0 errors/105 warnings，构建2300模块；具体批次见整体PR稿。
 
-工程回归：`npm run test:labor-contract-analysis`、`node server/scripts/test-labor-analysis-batches.js`、`node server/scripts/test-labor-progress.js`、`node server/scripts/test-labor-contract-ui.mjs`、`node server/scripts/test-tool-workbench-ui.mjs`、`node server/scripts/test-tool-account-ui.mjs`。固定虚构样例评测见 `server/scripts/benchmark-labor-analysis-batches.js`；真实模型调用须显式 `--live` 并遵守材料外发授权。工程测试与已知问题筛查不等于法律准确性或无漏检保证。
+工程回归：`npm run test:labor-contract-analysis`、`node server/scripts/test-labor-analysis-batches.js`、`node server/scripts/test-labor-progress.js`、`npm run test:labor-contract-ui`（浏览器回归，需先 `npm run dev`：覆盖结构分析分片流式不丢字、运行中不提前露出批注稿、三轮面板统一列出各轮、正文含二/三轮补充发现与「问题核对说明」、终态可打开批注稿、刷新不重复、失败无误导文案）、`npm run test:annotation-edits`（纯函数：编辑按批注ID覆盖、定位不变、复制导出取最终意见）、`npm run test:annotation-edits-ui`（浏览器回归，需先 `npm run dev`：商业审查与劳动合同分析的就地编辑、复制/Word 导出取改后意见、刷新后编辑仍在、恢复AI原稿与全部恢复）、`node server/scripts/test-tool-workbench-ui.mjs`、`node server/scripts/test-tool-account-ui.mjs`。固定虚构样例评测见 `server/scripts/benchmark-labor-analysis-batches.js`；真实模型调用须显式 `--live` 并遵守材料外发授权。工程测试与已知问题筛查不等于法律准确性或无漏检保证。
 
 ### 劳动仲裁答辩 Demo（分阶段 v2，2026-10-04）
 
@@ -493,7 +501,7 @@ v2工程验证命令：`node server/scripts/test-arbitration-staged.js`、`node 
 
 任务输入会持久化到 `tasks.input_json`，包括 `operation`、`threadId`、`parentTaskId`、对话/草稿快照和实际 `fileRefs`。Worker 复用“附件解析 → 合同类型识别 → 合同生成 → 结果整理”链路，阶段检查点为 `parsing`、`contract_type`、`generation` 和 `persistence`。只有完整 Markdown 通过结构校验并由任务事务保存到 SQLite 后，结果才是正式草稿；失败或取消不会替换父任务的成功结果。
 
-`POST /api/contract-draft` 继续保留为兼容 SSE 接口：条款解释、风险咨询、普通追问和意图澄清不创建异步任务；完整起草由前端优先提交到 `POST /api/tasks/contract-draft` 并订阅任务事件，遇到澄清或兼容场景再回退到该 SSE 接口。
+`POST /api/contract-draft` 继续保留为兼容 SSE 接口：条款解释、风险咨询、普通追问和意图澄清不创建异步任务；完整起草由前端优先提交到 `POST /api/tasks/contract-draft` 并订阅任务事件，遇到澄清或兼容场景再回退到该 SSE 接口。 发送明确起草要求后立即打开合同草稿侧栏；任务通过 `draft.delta`（`content` 为新增正文片段）提供流式预览，按 `_seq` 回放并在 `stage.start` 的 `generation` 阶段重置预览。长合同分块修订按已完成内容块输出。预览未完成时不可导出，正式草稿仍以任务成功后读取的 `task.result.draftText` 为准。
 
 ## 开发命令
 
@@ -655,3 +663,12 @@ Made with care by 法飞飞 AI
 ### 2026-10-05提交批次验证
 
 首次交付按后端与共享纯函数、前端与页面回归、文档三组验证，后按用户要求合并为“功能与测试、文档”两个提交；功能代码保持一致，以下是合并前批次结果，不追记为合并后重跑。后端暂存内容导出到新系统临时副本，11组离线/模型桩回归退出0，仲裁分阶段96项，49个JS语法检查通过。测试预加载内存法规库并拒绝外部fetch，原业务库/队列/上传沿用脚本隔离；不使用现役数据库。前端暂存副本中4组Edge/API桩页面回归通过，独立Vite使用临时端口55341并已停止。lint退出0、0 errors/105 warnings；构建2300模块，输出到新的系统临时目录，未写dist。历史真实模型、OCR和Word结果仍按各原批次，不追记为本次复验。
+
+
+## 员工手册报告与诊断批注稿（2026-10-13）
+
+员工手册复用共享解析正文及材料核对面板，报告按摘要、重点问题与修改建议、待确认事项和检查说明展示，字号与合同审查一致。原文批注复用合同组件和 Word 可读 `.doc` 导出；文件可切换，问题编号跨引用一致，原文不自动替换。待核实、OCR 未确认或无法唯一定位的示例条款不展示、不复制，诊断提示仍保留。
+
+历史报告追问保留原解析快照；旧解析版本重新诊断时重读原件，后续分析按正文签名恢复。外部法条清单仍由 `HANDBOOK_PROVISION_MANIFEST` 显式配置，不把条号匹配或模型支持意见当成法务验收。向量检索仍未进入正式链路。
+
+本轮验收见 [整合与批注验收](docs/员工手册诊断测试/整合与批注验收-20261013.md)。用户要求先完成本地，当前远端 PR 未更新，尚未合入或部署。

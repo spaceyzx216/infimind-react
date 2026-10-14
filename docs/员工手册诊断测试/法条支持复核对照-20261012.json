@@ -1,0 +1,73 @@
+{
+  "syntheticClaimsOnly": true,
+  "source": "explicit public-law manifest",
+  "annotationStatus": "assistant-labelled-control-not-legal-gold",
+  "results": [
+    {
+      "key": "L01",
+      "expectedDirection": "supported",
+      "opinion": {
+        "key": "L01",
+        "provisionId": "labor-四十四",
+        "support": "supported",
+        "quote": "（三）法定休假日安排劳动者工作的，支付不低于工资的百分之三百的工资报酬。",
+        "reason": "该条文明确法定休假日安排工作应支付不低于工资百分之三百的工资报酬，未规定可以补休替代。finding指出仅安排补休而不支付加班工资存在问题，并建议保留标准工时和法定节日条件、按法定要求支付不低于百分之三百的工资报酬，与引文一致。"
+      },
+      "milliseconds": 1368.7813999999998,
+      "usage": {
+        "prompt_tokens": 1167,
+        "completion_tokens": 116,
+        "total_tokens": 1283,
+        "prompt_tokens_details": {
+          "cached_tokens": 640
+        },
+        "prompt_cache_hit_tokens": 640,
+        "prompt_cache_miss_tokens": 527
+      }
+    },
+    {
+      "key": "L02",
+      "expectedDirection": "unsupported",
+      "opinion": {
+        "key": "L02",
+        "provisionId": "contract-四十二",
+        "support": "unsupported",
+        "quote": "第四十二条　劳动者有下列情形之一的，用人单位不得依照本法第四十条、第四十一条的规定解除劳动合同：",
+        "reason": "该finding的说明正确指出孕期女职工不得依第四十条因不胜任工作被解除，但建议与建议条款却要求保留或写入“孕期女职工不胜任工作时按第四十条解除”的规则，与第四十二条禁止性规定直接相反，故该引用不支持其修改建议。"
+      },
+      "milliseconds": 1219.7791000000002,
+      "usage": {
+        "prompt_tokens": 2218,
+        "completion_tokens": 114,
+        "total_tokens": 2332,
+        "prompt_tokens_details": {
+          "cached_tokens": 640
+        },
+        "prompt_cache_hit_tokens": 640,
+        "prompt_cache_miss_tokens": 1578
+      }
+    },
+    {
+      "key": "L03",
+      "expectedDirection": "unsupported",
+      "opinion": {
+        "key": "L03",
+        "provisionId": "labor-四十四",
+        "support": "unsupported",
+        "quote": "第四十四条　有下列情形之一的，用人单位应当按照下列标准支付高于劳动者正常工作时间工资的工资报酬：\n\n（一）安排劳动者延长工作时间的，支付不低于工资的百分之一百五十的工资报酬；\n（二）休息日安排劳动者工作又不能安排补休的，支付不低于工资的百分之二百的工资报酬；\n\n（三）法定休假日安排劳动者工作的，支付不低于工资的百分之三百的工资报酬。",
+        "reason": "该条文仅规定延长工作时间、休息日加班且不能补休、法定休假日加班三种情形下的加班工资支付标准，与“办公室墙面颜色”这一虚构制度事项无任何关联，不能支持该finding的说明或修改建议。"
+      },
+      "milliseconds": 1286.6997000000001,
+      "usage": {
+        "prompt_tokens": 1146,
+        "completion_tokens": 178,
+        "total_tokens": 1324,
+        "prompt_tokens_details": {
+          "cached_tokens": 640
+        },
+        "prompt_cache_hit_tokens": 640,
+        "prompt_cache_miss_tokens": 506
+      }
+    }
+  ]
+}

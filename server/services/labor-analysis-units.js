@@ -1,3 +1,4 @@
+import { MAX_MODEL_OUTPUT_TOKENS } from '../../src/utils/context-budget.js'
 // Request budgets belong to a work unit, rather than a whole review round.
 // Calculate explicit calendar intervals instead of asking the model to count
 // years. Only complete, valid dates on a contract-term line are accepted.
@@ -68,12 +69,13 @@ export function validateLaborRevisionCheck(payload, revisions, readOnlyIds = new
 }
 
 export function laborPhaseOptions(taskMode, stage) {
-  const mode = taskMode !== 'fast' && ['review', 'final-check'].includes(stage) ? 'thinking' : 'fast'
+  // structure 与商业合同审查的结构分析一致：深度模式用思考、低推理强度。
+  const mode = taskMode !== 'fast' && ['review', 'final-check', 'structure'].includes(stage) ? 'thinking' : 'fast'
   return { mode, thinking: { type: mode === 'fast' ? 'disabled' : 'enabled' },
     ...(mode === 'thinking' ? { reasoningEffort: 'low' } : {}),
     // Thinking tokens share the output budget. Keep room for complete JSON;
     // page-size validation still bounds risks, and the unit deadline bounds time.
-    maxTokens: mode === 'fast' ? 8192 : 32768 }
+    maxTokens: MAX_MODEL_OUTPUT_TOKENS }
 }
 
 export const isRecoverableLlmError = (error) => Boolean(error?.retryable ||

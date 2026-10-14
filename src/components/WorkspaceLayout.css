@@ -46,7 +46,7 @@
 .app-workspace-rail .app-workspace-icon > svg { width: 20px; height: 20px; }
 .app-workspace-tools { display: flex; flex-direction: column; gap: 6px; width: 100%; align-items: center; }
 .workspace-sortable-tool { touch-action: none; user-select: none; -webkit-user-select: none; }
-.workspace-sortable-tool .app-workspace-tooltip small { display: block; margin-top: 3px; color: var(--fafee-ink-subtle); font-size: 10px; }
+.workspace-sortable-tool .app-workspace-tooltip small { display: block; margin-top: 3px; color: var(--fafee-ink-subtle); font-size: 10.5px; font-weight: 400; }
 .app-workspace-tools.is-sorting .app-workspace-tooltip { display: none; }
 .app-workspace-tools.is-sorting .workspace-sortable-tool { cursor: grabbing; }
 .workspace-sortable-tool.is-dragging { z-index: 70; cursor: grabbing; background: var(--fafee-surface); box-shadow: 0 5px 16px rgba(var(--fafee-shadow-rgb), .18), 0 0 0 1px rgba(var(--fafee-shadow-rgb), .08); }
@@ -58,21 +58,29 @@
   z-index: 60;
   top: 50%;
   left: calc(100% + 12px);
-  padding: 7px 11px;
+  padding: 8px 12px;
   border: 1px solid var(--fafee-border);
-  border-radius: 7px;
+  border-radius: 12px;
   background: var(--fafee-surface);
   color: var(--fafee-ink);
-  box-shadow: 0 4px 16px rgba(var(--fafee-shadow-rgb), 0.1);
-  font-size: 12px;
+  box-shadow: 0 8px 24px rgba(var(--fafee-shadow-rgb), 0.12), 0 2px 6px rgba(var(--fafee-shadow-rgb), 0.05);
+  font-size: 12.5px;
+  font-weight: 500;
   line-height: 1.5;
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
   transform: translateY(-50%);
+  transition: opacity 120ms ease;
 }
+/* gsap 排序动画会给图标写入 transform，而 transform 让图标自身成为层叠上下文：
+   tooltip 的 z-index 因此逃不出图标，会被右侧会话面板整块盖住。
+   悬停/键盘聚焦时把图标整体抬到面板之上，卡片才真正可见。 */
+.app-workspace-icon:hover,
+.app-workspace-icon:focus-visible { z-index: 65; }
 .app-workspace-icon:hover .app-workspace-tooltip,
 .app-workspace-icon:focus-visible .app-workspace-tooltip { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .app-workspace-tooltip { transition: none; } }
 
 .app-workspace-account { position: relative; margin-top: auto; }
 .app-workspace-account-menu {
