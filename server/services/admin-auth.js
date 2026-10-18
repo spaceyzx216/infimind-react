@@ -10,6 +10,7 @@
 import { createHmac, createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
 import { SignJWT, jwtVerify } from 'jose'
+import { loadInviteCodeKey } from './invite-crypto.js'
 
 const scryptAsync = promisify(scrypt)
 export const ADMIN_ISSUER = 'fafee-admin'
@@ -165,7 +166,7 @@ export const verifyAdminUsername = (candidate, expected) => constantTimeEqual(sh
  * @returns {{ config: object|null, error: string }}
  */
 export function loadAdminConfig(env = process.env) {
-  const required = ['ADMIN_USERNAME', 'ADMIN_PASSWORD_HASH', 'ADMIN_TOTP_SECRET', 'ADMIN_JWT_SECRET']
+  const required = ['ADMIN_USERNAME', 'ADMIN_PASSWORD_HASH', 'ADMIN_TOTP_SECRET', 'ADMIN_JWT_SECRET', 'ADMIN_CODE_KEY']
   const missing = required.filter((key) => !String(env[key] || '').trim())
   if (missing.length) return { config: null, error: `缺少环境变量 ${missing.join(', ')}，管理台未启动` }
   const username = String(env.ADMIN_USERNAME).trim()
@@ -179,6 +180,12 @@ export function loadAdminConfig(env = process.env) {
     return { config: null, error: error.message }
   }
   if (totpBytes.length < 10) return { config: null, error: 'ADMIN_TOTP_SECRET 至少 10 字节' }
+  let inviteCodeKey
+  try {
+    inviteCodeKey = loadInviteCodeKey(env.ADMIN_CODE_KEY)
+  } catch (error) {
+    return { config: null, error: error.message }
+  }
   const port = readInt(env.ADMIN_PORT, ADMIN_DEFAULTS.port, { min: 1, max: 65535 })
   const sessionTtlSeconds = readInt(env.ADMIN_SESSION_TTL_SECONDS, ADMIN_DEFAULTS.sessionTtlSeconds, { min: 60, max: 24 * 60 * 60 })
   const maxLoginFailures = readInt(env.ADMIN_MAX_LOGIN_FAILURES, ADMIN_DEFAULTS.maxLoginFailures, { min: 1, max: 100 })
@@ -192,6 +199,7 @@ export function loadAdminConfig(env = process.env) {
       passwordHash: env.ADMIN_PASSWORD_HASH,
       totpSecret: env.ADMIN_TOTP_SECRET,
       jwtSecret: env.ADMIN_JWT_SECRET,
+      inviteCodeKey,
       port,
       sessionTtlSeconds,
       maxLoginFailures,

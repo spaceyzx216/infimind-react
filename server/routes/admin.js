@@ -172,6 +172,19 @@ export function createAdminApp({ database, config, now = () => Date.now() } = {}
     }
   })
 
+  app.get('/admin/api/invites/codes', requireAdmin, (request, response) => {
+    try {
+      const result = adminService.listInviteCodes({
+        status: INVITE_STATES.includes(String(request.query.status || '')) ? request.query.status : 'unused',
+        actor: request.admin.sub,
+        ...clientMeta(request)
+      })
+      response.json(result)
+    } catch (error) {
+      sendError(response, error)
+    }
+  })
+
   app.post('/admin/api/invites', requireAdmin, (request, response) => {
     try {
       const result = adminService.createInvites({

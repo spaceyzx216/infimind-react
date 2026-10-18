@@ -2,12 +2,12 @@
  * 运维管理台（邀请码）回归测试。
  *
  * 覆盖：
- *   1. 邀请码格式/哈希/规范化与「库内只存哈希」
+ *   1. 邀请码格式/哈希/规范化与「库内只存哈希 + AES-GCM 密文」
  *   2. 管理员密码 scrypt 校验、TOTP（RFC 6238 向量）、独立管理 JWT
  *   3. 发码/列表/停用/统计/审计的业务规则与并发安全边界
  *   4. 注册链路对停用/过期/已使用邀请码的拒绝
- *   5. HTTP 层：无令牌 401、登录限速锁定、CSP/安全响应头、明文只出现一次
- *   6. loadAdminConfig fail-closed 与旧库字段迁移
+ *   5. HTTP 层：无令牌 401、登录限速锁定、CSP/安全响应头、明文的加密展示与解密接口
+ *   6. loadAdminConfig fail-closed、旧库字段迁移与历史明文回填
  *
  * 全部使用内存库/临时库，不调用模型，不写现役业务库。
  * 用法：npm run test:admin
@@ -24,6 +24,8 @@ import { createAdminApp } from '../routes/admin.js'
 import { createAuthService } from '../services/auth-service.js'
 import { createBusinessDatabase } from '../services/business-db.js'
 import { generateInviteCode, hashInviteCode, normalizeInviteCode, isValidInviteCodeFormat } from '../services/invite-code.js'
+import { decryptInviteCode, encryptInviteCode, generateInviteCodeKey, loadInviteCodeKey } from '../services/invite-crypto.js'
+import { backfillInvitePlaintext } from './backfill-invite-plaintext.js'
 
 const CLOCK = Date.UTC(2026, 0, 1, 12, 0, 0)
 const USER_JWT_SECRET = 'test-only-user-jwt-secret-with-at-least-32-bytes'
@@ -55,11 +57,13 @@ console.log('\n=== 运维管理台（邀请码）回归测试 ===\n')
 
 const passwordHash = await hashAdminPassword(ADMIN_PASSWORD)
 const totpSecret = base32Encode(randomBytes(20))
+const inviteCodeKey = loadInviteCodeKey(generateInviteCodeKey())
 const config = {
   username: 'ops',
   passwordHash,
   totpSecret,
   jwtSecret: 'test-only-admin-jwt-secret-with-at-least-32-bytes',
+  inviteCodeKey,
   port: 0,
   sessionTtlSeconds: 30 * 60,
   maxLoginFailures: 3,
@@ -84,10 +88,23 @@ await test('生成的邀请码符合 7 位大写字母数字且哈希稳定', ()
   assert.equal(hashInviteCode(` ${code.toLowerCase()} `), hashInviteCode(code))
   assert.equal(hashInviteCode(code).length, 64)
 })
-await test('库内只存 sha256，不存明文列', () => {
+await test('加密模块：往返可解密，错误密钥/AAD/篡改必须失败', () => {
+  assert.equal(hashInviteCode(generateInviteCode()).length, 64)
+  const otherKey = loadInviteCodeKey(generateInviteCodeKey())
+  const ciphertext = encryptInviteCode('ABC1234', 'invite-id-1', inviteCodeKey)
+  assert.notEqual(ciphertext, 'ABC1234')
+  assert.equal(ciphertext.includes('ABC1234'), false)
+  assert.equal(decryptInviteCode(ciphertext, 'invite-id-1', inviteCodeKey), 'ABC1234')
+  assert.throws(() => decryptInviteCode(ciphertext, 'invite-id-1', otherKey))
+  assert.throws(() => decryptInviteCode(ciphertext, 'invite-id-2', inviteCodeKey))
+  const tampered = ciphertext.slice(0, -2) + (ciphertext.endsWith('AA') ? 'BB' : 'AA')
+  assert.throws(() => decryptInviteCode(tampered, 'invite-id-1', inviteCodeKey))
+})
+await test('库内只存 sha256 + 密文，不存明文列', () => {
   const columns = database.prepare('PRAGMA table_info(invite_codes)').all().map((column) => column.name)
   assert.ok(!columns.includes('code'))
   assert.ok(columns.includes('code_hash'))
+  assert.ok(columns.includes('code_ciphertext'))
   assert.ok(columns.includes('label'))
   assert.ok(columns.includes('expires_at'))
   assert.ok(columns.includes('disabled_at'))
@@ -122,37 +139,58 @@ await test('管理 JWT 独立 issuer/audience，并拒绝过期、错误密钥�
 
 console.log('\n3. 发码 / 列表 / 停用 / 统计 / 审计')
 let created
-await test('生成邀请码：明文一次返回，库内只有哈希，审计不含明文', async () => {
+await test('生成邀请码：返回明文，库内只有哈希 + AES-256-GCM 密文，审计不含明文', async () => {
   created = adminService.createInvites({ actor: 'ops', count: 3, label: '批次A', note: '测试批次' })
   assert.equal(created.codes.length, 3)
   assert.equal(created.items.length, 3)
   for (const code of created.codes) assert.match(code, /^[A-Z0-9]{7}$/)
-  const rows = database.prepare("SELECT id, code_hash, label, note, created_by, expires_at FROM invite_codes WHERE label = '批次A'").all()
+  const rows = database.prepare("SELECT id, code_hash, code_ciphertext, label, note, created_by, expires_at FROM invite_codes WHERE label = '批次A'").all()
   assert.equal(rows.length, 3)
   for (const row of rows) {
     assert.ok(!Object.values(row).includes(created.codes[0]))
     assert.equal(row.created_by, 'ops')
+    const decrypted = decryptInviteCode(row.code_ciphertext, row.id, inviteCodeKey)
+    assert.ok(created.codes.includes(decrypted), '库内密文必须能用管理员密钥还原出本轮明文')
   }
   const hashes = new Set(rows.map((row) => row.code_hash))
   for (const code of created.codes) assert.ok(hashes.has(hashInviteCode(code)))
   const audit = database.prepare("SELECT detail_json FROM admin_audit_log WHERE action = 'invite.create' ORDER BY created_at DESC").all()
   for (const row of audit) for (const code of created.codes) assert.ok(!row.detail_json.includes(code))
 })
-await test('列表不返回明文，状态/搜索/分页正确', () => {
-  const page = adminService.listInvites({ status: 'unused', page: 1, pageSize: 2 })
-  assert.equal(page.total >= 3, true)
-  assert.equal(page.items.length <= 2, true)
+await test('列表返回可解密明文，状态/搜索/分页正确', () => {
+  const page = adminService.listInvites({ q: '批次A', page: 1, pageSize: 2 })
+  assert.equal(page.total, 3)
+  assert.equal(page.items.length, 2)
   for (const item of page.items) {
-    assert.ok(!('code' in item))
     assert.equal(typeof item.hashPrefix, 'string')
+    assert.equal(typeof item.code, 'string')
+    assert.ok(created.codes.includes(item.code))
     assert.equal(item.state, 'unused')
   }
-  const searched = adminService.listInvites({ q: '批次A' })
-  assert.equal(searched.total, 3)
+  const all = adminService.listInvites({ q: '批次A', pageSize: 10 })
+  assert.deepEqual(all.items.map((item) => item.code).sort(), [...created.codes].sort())
   const missing = adminService.listInvites({ q: '不存在的关键词zzz' })
   assert.equal(missing.total, 0)
   const used = adminService.listInvites({ status: 'used' })
   assert.equal(used.items.every((item) => item.state === 'used'), true)
+})
+await test('历史无密文码显示哈希前缀；用已知明文回填后可再次解密', () => {
+  const legacyCode = generateInviteCode()
+  database.prepare('INSERT INTO invite_codes (id, code_hash, created_at) VALUES (?, ?, ?)')
+    .run('legacy-unused', hashInviteCode(legacyCode), new Date(CLOCK).toISOString())
+  const beforeItem = adminService.listInvites({ status: 'unused', pageSize: 100 }).items.find((item) => item.id === 'legacy-unused')
+  assert.ok(beforeItem)
+  assert.equal(beforeItem.code, null, '没有密文的历史码只能展示哈希前缀')
+  const summary = backfillInvitePlaintext(database, [legacyCode, 'NOT-A-REAL-CODE'], inviteCodeKey)
+  assert.equal(summary.matched, 1)
+  assert.equal(summary.updated, 1)
+  assert.equal(summary.unmatched, 1)
+  const afterItem = adminService.listInvites({ status: 'unused', pageSize: 100 }).items.find((item) => item.id === 'legacy-unused')
+  assert.equal(afterItem.code, legacyCode)
+  const copyAll = adminService.listInviteCodes({ actor: 'ops', status: 'unused' })
+  assert.ok(copyAll.codes.includes(legacyCode))
+  assert.ok(created.codes.every((code) => copyAll.codes.includes(code)))
+  assert.equal(copyAll.unavailable, 0)
 })
 await test('停用：可用码停用成功；重复停用/不存在给出明确错误', async () => {
   const first = created.items[0]
@@ -269,7 +307,15 @@ await test('带令牌完成发码、列表、停用与审计查询', async () =>
   assert.equal(payload.codes.length, 2)
   const list = await request('/admin/api/invites?status=unused&pageSize=50', { headers })
   const listPayload = await list.json()
-  assert.equal(listPayload.items.some((item) => 'code' in item), false)
+  const listedCodes = new Set(listPayload.items.map((item) => item.code))
+  assert.ok(payload.codes.every((code) => listedCodes.has(code)), '列表必须能展示可解密明文')
+  const copyAll = await request('/admin/api/invites/codes?status=unused', { headers })
+  assert.equal(copyAll.status, 200)
+  const copyPayload = await copyAll.json()
+  assert.ok(payload.codes.every((code) => copyPayload.codes.includes(code)))
+  const auditAll = await request('/admin/api/audit?pageSize=100', { headers })
+  const auditText = JSON.stringify(await auditAll.json())
+  for (const code of payload.codes) assert.ok(!auditText.includes(code), '审计日志不得出现明文')
   const target = payload.items[0]
   const disable = await request(`/admin/api/invites/${target.id}/disable`, { method: 'POST', headers })
   assert.equal(disable.status, 200)
@@ -305,9 +351,12 @@ await test('缺少/非法 ADMIN_* 时 loadAdminConfig 返回 error', () => {
   assert.equal(weakSecret.config, null)
   const badHash = loadAdminConfig({ ADMIN_USERNAME: 'ops', ADMIN_PASSWORD_HASH: 'bad-format', ADMIN_TOTP_SECRET: totpSecret, ADMIN_JWT_SECRET: config.jwtSecret })
   assert.equal(badHash.config, null)
-  const valid = loadAdminConfig({ ADMIN_USERNAME: 'ops', ADMIN_PASSWORD_HASH: passwordHash, ADMIN_TOTP_SECRET: totpSecret, ADMIN_JWT_SECRET: config.jwtSecret, ADMIN_PORT: '8791' })
+  const valid = loadAdminConfig({ ADMIN_USERNAME: 'ops', ADMIN_PASSWORD_HASH: passwordHash, ADMIN_TOTP_SECRET: totpSecret, ADMIN_JWT_SECRET: config.jwtSecret, ADMIN_CODE_KEY: generateInviteCodeKey(), ADMIN_PORT: '8791' })
   assert.equal(valid.config.port, 8791)
   assert.equal(valid.config.sessionTtlSeconds, 1800)
+  assert.ok(Buffer.isBuffer(valid.config.inviteCodeKey))
+  const missingCodeKey = loadAdminConfig({ ADMIN_USERNAME: 'ops', ADMIN_PASSWORD_HASH: passwordHash, ADMIN_TOTP_SECRET: totpSecret, ADMIN_JWT_SECRET: config.jwtSecret })
+  assert.equal(missingCodeKey.config, null)
 })
 await test('旧 invitation/users 表结构启动时自动补齐并回填账号到期时间', () => {
   const dir = mkdtempSync(join(tmpdir(), 'fafee-admin-migrate-'))
@@ -328,7 +377,7 @@ await test('旧 invitation/users 表结构启动时自动补齐并回填账号�
   legacy.close()
   const migrated = createBusinessDatabase(file)
   const inviteColumns = migrated.prepare('PRAGMA table_info(invite_codes)').all().map((column) => column.name)
-  assert.ok(inviteColumns.includes('label') && inviteColumns.includes('note') && inviteColumns.includes('created_by') && inviteColumns.includes('expires_at') && inviteColumns.includes('disabled_at'))
+  assert.ok(inviteColumns.includes('label') && inviteColumns.includes('note') && inviteColumns.includes('created_by') && inviteColumns.includes('expires_at') && inviteColumns.includes('disabled_at') && inviteColumns.includes('code_ciphertext'))
   const userColumns = migrated.prepare('PRAGMA table_info(users)').all().map((column) => column.name)
   assert.ok(userColumns.includes('expires_at') && userColumns.includes('disabled_at'))
   const migratedUser = migrated.prepare('SELECT expires_at, disabled_at FROM users WHERE id = ?').get('legacy-user')

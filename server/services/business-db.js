@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS invite_codes (
   note TEXT NOT NULL DEFAULT '',
   created_by TEXT NOT NULL DEFAULT '',
   expires_at TEXT,
-  disabled_at TEXT
+  disabled_at TEXT,
+  code_ciphertext TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_invite_codes_created_at ON invite_codes(created_at DESC);
@@ -161,6 +162,8 @@ export function createBusinessDatabase(filename = process.env.BUSINESS_DB_PATH |
   if (!inviteColumns.has('created_by')) database.exec("ALTER TABLE invite_codes ADD COLUMN created_by TEXT NOT NULL DEFAULT ''")
   if (!inviteColumns.has('expires_at')) database.exec('ALTER TABLE invite_codes ADD COLUMN expires_at TEXT')
   if (!inviteColumns.has('disabled_at')) database.exec('ALTER TABLE invite_codes ADD COLUMN disabled_at TEXT')
+  // 明文密文（AES-256-GCM，密钥 ADMIN_CODE_KEY 只在 .env.local）；旧码没有密文时后台按哈希前缀展示。
+  if (!inviteColumns.has('code_ciphertext')) database.exec('ALTER TABLE invite_codes ADD COLUMN code_ciphertext TEXT')
   // 账号生命周期：到期时间在注册时继承邀请码快照；disabled_at 留给后续人工停用。
   const userColumns = new Set(database.prepare('PRAGMA table_info(users)').all().map((column) => column.name))
   const userExpiresIsNew = !userColumns.has('expires_at')

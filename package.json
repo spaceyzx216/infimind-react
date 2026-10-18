@@ -31,6 +31,8 @@
     "test:contract-draft": "node server/scripts/test-contract-draft-tasks.js",
     "invite:create": "node server/scripts/create-invites.js",
     "invite:status": "node server/scripts/invite-status-report.js",
+    "invite:key": "node server/scripts/invite-key-init.js",
+    "invite:backfill": "node server/scripts/backfill-invite-plaintext.js",
     "admin:init": "node server/scripts/admin-init.js",
     "admin:open": "node scripts/ops/admin-open.mjs",
     "test:admin": "node server/scripts/test-admin.js",

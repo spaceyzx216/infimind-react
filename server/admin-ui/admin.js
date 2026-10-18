@@ -88,6 +88,7 @@
     inviteSearch: document.getElementById('invite-search'),
     invitesNotice: document.getElementById('invites-notice'),
     invitesSummary: document.getElementById('invites-summary'),
+    invitesCopyUnused: document.getElementById('invites-copy-unused'),
     inviteTableWrap: document.getElementById('invite-table-wrap'),
     invitesBody: document.getElementById('invites-body'),
     invitesPageInfo: document.getElementById('invites-page-info'),
@@ -775,9 +776,28 @@
 
     appendTextCell(row, '序号', String(serial), 'col-index')
 
-    const hashCell = makeCell('哈希前缀')
-    hashCell.append(make('code', 'hash', textOf(value.hashPrefix)))
-    row.append(hashCell)
+    const codeCell = makeCell('邀请码')
+    if (value.code) {
+      const codeWrap = make('span', 'code-value')
+      codeWrap.append(make('span', 'code-text', value.code))
+      const copyButton = make('button', 'copy-mini', '复制')
+      copyButton.type = 'button'
+      copyButton.addEventListener('click', async () => {
+        try {
+          await copyText(value.code)
+          copyButton.textContent = '已复制'
+          window.setTimeout(() => { copyButton.textContent = '复制' }, 1600)
+        } catch {
+          setAlert(ui.invitesNotice, '复制失败，请手动选择邀请码。', 'error')
+        }
+      })
+      codeWrap.append(copyButton)
+      codeCell.append(codeWrap)
+    } else {
+      codeCell.append(make('code', 'hash', textOf(value.hashPrefix)))
+      codeCell.append(make('span', 'subtext', ' 明文不可用'))
+    }
+    row.append(codeCell)
 
     appendTruncatedCell(row, '标签', value.label)
     appendTruncatedCell(row, '备注', value.note, 'cell-truncate cell-truncate--wide')
@@ -1127,6 +1147,36 @@
     }
   }
 
+  async function copyUnusedInviteCodes() {
+    const button = ui.invitesCopyUnused
+    if (!button || button.disabled) return
+    const epoch = session.epoch
+    clearAlert(ui.invitesNotice)
+    button.disabled = true
+    button.textContent = '读取中…'
+    try {
+      const data = await request('/invites/codes?status=unused')
+      if (epoch !== session.epoch) return
+      const codes = Array.isArray(data?.codes) ? data.codes : []
+      if (!codes.length) {
+        const hint = data?.unavailable ? `（${data.unavailable} 个历史邀请码没有密文，无法恢复明文）` : ''
+        setAlert(ui.invitesNotice, `没有可复制的未使用邀请码${hint}。`, 'info')
+        return
+      }
+      await copyText(codes.join('\n'))
+      const hint = data.unavailable ? `；另有 ${data.unavailable} 个历史码明文不可用` : ''
+      setAlert(ui.invitesNotice, `已复制 ${codes.length} 个未使用邀请码${hint}。`, 'success')
+    } catch (error) {
+      if (epoch !== session.epoch || error.status === 401) return
+      setAlert(ui.invitesNotice, `复制失败：${error.message}`, 'error')
+    } finally {
+      if (epoch === session.epoch) {
+        button.disabled = false
+        button.textContent = '复制未使用邀请码'
+      }
+    }
+  }
+
   function csvCell(value) {
     let text = value === null || value === undefined ? '' : String(value)
     const first = text.charAt(0)
@@ -1358,6 +1408,7 @@
     })
 
     ui.inviteSearch.addEventListener('input', scheduleInviteSearch)
+    ui.invitesCopyUnused.addEventListener('click', copyUnusedInviteCodes)
     ui.inviteSearch.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter') return
       event.preventDefault()

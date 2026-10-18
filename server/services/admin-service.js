@@ -2,11 +2,12 @@
  * 邀请码管理台的业务服务（列表、发码、停用、统计、审计）。
  *
  * 安全约定：
- * - 数据库只存邀请码 sha256，管理台列表永远不回传明文；
- * - 明文只在「生成」这一次响应里返回，由运维当场保存；
+ * - 数据库存邀请码 sha256 + AES-256-GCM 密文（ADMIN_CODE_KEY 只在服务器 .env.local）；
+ * - 明文只在管理员会话下解密展示（列表/复制），响应带 no-store；旧码无密文时退回哈希前缀；
  * - 审计只记动作、目标与数量，不记明文码、密码或 TOTP。
  */
 import { randomUUID } from 'node:crypto'
+import { decryptInviteCode, encryptInviteCode } from './invite-crypto.js'
 import { generateInviteCode, hashInviteCode } from './invite-code.js'
 
 export const INVITE_STATES = Object.freeze(['all', 'unused', 'used', 'disabled', 'expired'])
@@ -77,9 +78,19 @@ export function createAdminService({ database, config, now = () => Date.now() } 
 
   const countCreatedSince = database.prepare('SELECT COUNT(*) AS count FROM invite_codes WHERE created_at >= ?')
   const insertInvite = database.prepare(`
-    INSERT INTO invite_codes (id, code_hash, created_at, label, note, created_by, expires_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO invite_codes (id, code_hash, created_at, label, note, created_by, expires_at, code_ciphertext)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `)
+
+  const decryptCodeOf = (ciphertext, inviteId) => {
+    if (!ciphertext) return null
+    try {
+      return decryptInviteCode(ciphertext, inviteId, config.inviteCodeKey)
+    } catch (error) {
+      console.warn('[admin] 邀请码密文解密失败（id 已省略）:', error.message)
+      return null
+    }
+  }
 
   const createInvites = ({ actor, count, label = '', note = '', expiresAt = null, ip = '', userAgent = '' } = {}) => {
     const amount = Number(count)
@@ -113,13 +124,13 @@ export function createAdminService({ database, config, now = () => Date.now() } 
         const code = generateInviteCode()
         const id = randomUUID()
         try {
-          insertInvite.run(id, hashInviteCode(code), createdAt, normalizedLabel, normalizedNote, actor, expiresIso)
+          insertInvite.run(id, hashInviteCode(code), createdAt, normalizedLabel, normalizedNote, actor, expiresIso, encryptInviteCode(code, id, config.inviteCodeKey))
         } catch (error) {
           if (String(error?.code || '').startsWith('SQLITE_CONSTRAINT_UNIQUE')) continue
           throw error
         }
         codes.push(code)
-        items.push({ id, hashPrefix: hashInviteCode(code).slice(0, 12), createdAt, expiresAt: expiresIso })
+        items.push({ id, hashPrefix: hashInviteCode(code).slice(0, 12), code, createdAt, expiresAt: expiresIso })
       }
     })
     transaction(amount)
@@ -172,7 +183,7 @@ export function createAdminService({ database, config, now = () => Date.now() } 
     const currentPageSize = normalizePageSize(pageSize)
     const total = database.prepare(`SELECT COUNT(*) AS count ${baseFrom} ${whereSql}`).get(...params).count
     const rows = database.prepare(`
-      SELECT i.id, substr(i.code_hash, 1, 12) AS hash_prefix, i.label, i.note,
+      SELECT i.id, i.code_hash, i.code_ciphertext, substr(i.code_hash, 1, 12) AS hash_prefix, i.label, i.note,
              i.created_at, i.expires_at, i.disabled_at, i.used_at,
              u.username, u.email,
              u.expires_at AS account_expires_at, u.disabled_at AS account_disabled_at
@@ -185,6 +196,7 @@ export function createAdminService({ database, config, now = () => Date.now() } 
       items: rows.map((row) => ({
         id: row.id,
         hashPrefix: row.hash_prefix,
+        code: decryptCodeOf(row.code_ciphertext, row.id),
         label: row.label || '',
         note: row.note || '',
         createdAt: row.created_at,
@@ -199,6 +211,30 @@ export function createAdminService({ database, config, now = () => Date.now() } 
       total,
       totalPages: Math.ceil(total / currentPageSize)
     }
+  }
+
+  // 供“复制全部未使用”使用：只返回可解密明文；legacy 行（无密文）计入 unavailable。
+  const listInviteCodes = ({ status = 'unused', actor = 'system', ip = '', userAgent = '' } = {}) => {
+    const normalizedStatus = INVITE_STATES.includes(String(status)) ? String(status) : 'unused'
+    const nowMs = now()
+    const rows = database.prepare('SELECT id, code_ciphertext, used_at, disabled_at, expires_at FROM invite_codes ORDER BY created_at DESC, id DESC').all()
+    const codes = []
+    let unavailable = 0
+    for (const row of rows) {
+      if (normalizedStatus !== 'all' && stateOf(row, nowMs) !== normalizedStatus) continue
+      const code = decryptCodeOf(row.code_ciphertext, row.id)
+      if (code) codes.push(code)
+      else unavailable += 1
+    }
+    recordAudit({
+      actor,
+      action: 'invite.codes.read',
+      result: 'ok',
+      detail: { status: normalizedStatus, count: codes.length, unavailable },
+      ip,
+      userAgent
+    })
+    return { codes, count: codes.length, unavailable }
   }
 
   const disableInvite = ({ id, actor, ip = '', userAgent = '' } = {}) => {
@@ -263,7 +299,7 @@ export function createAdminService({ database, config, now = () => Date.now() } 
     }
   }
 
-  return { recordAudit, createInvites, listInvites, disableInvite, getStats, listAudit }
+  return { recordAudit, createInvites, listInvites, listInviteCodes, disableInvite, getStats, listAudit }
 }
 
 export { ISO_EPOCH, MAX_PAGE_SIZE }

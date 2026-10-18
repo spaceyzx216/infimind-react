@@ -138,9 +138,9 @@
         <div class="panel-heading">
           <div>
             <h2 id="create-title">生成邀请码</h2>
-            <p>一次可生成 1–200 个，明文只在结果面板中显示一次。</p>
+            <p>一次可生成 1–200 个；生成结果会显示明文，之后也可在下方列表查看与复制。</p>
           </div>
-          <span class="tag tag--warning">仅本次显示</span>
+          <span class="tag tag--warning">管理员可见</span>
         </div>
 
         <form class="create-form" id="create-form" method="post" novalidate>
@@ -169,7 +169,7 @@
           <p class="alert alert--error" id="create-error" role="alert" hidden></p>
 
           <div class="create-actions">
-            <p class="create-warning"><strong>保存提醒：</strong>生成成功后请立即复制或下载 CSV，关闭结果面板后无法找回明文。</p>
+            <p class="create-warning"><strong>保存提醒：</strong>生成后可在列表里查看和执行“复制未使用邀请码”；分发时注意只发给授权对象。</p>
             <button class="btn btn--primary" id="create-submit" type="submit">生成邀请码</button>
           </div>
         </form>
@@ -192,9 +192,12 @@
             <button class="filter-chip" type="button" data-status="expired" aria-pressed="false">已过期</button>
           </div>
 
-          <div class="search-field">
-            <label class="visually-hidden" for="invite-search">搜索邀请码</label>
-            <input id="invite-search" type="search" placeholder="搜索标签、备注或使用者" autocomplete="off" spellcheck="false" />
+          <div class="toolbar-right">
+            <div class="search-field">
+              <label class="visually-hidden" for="invite-search">搜索邀请码</label>
+              <input id="invite-search" type="search" placeholder="搜索标签、备注或使用者" autocomplete="off" spellcheck="false" />
+            </div>
+            <button class="btn btn--ghost btn--sm" id="invites-copy-unused" type="button">复制未使用邀请码</button>
           </div>
         </div>
 
@@ -206,7 +209,7 @@
             <thead>
               <tr>
                 <th scope="col" class="col-index">序号</th>
-                <th scope="col">哈希前缀</th>
+                <th scope="col">邀请码</th>
                 <th scope="col">标签</th>
                 <th scope="col">备注</th>
                 <th scope="col">状态</th>
@@ -277,7 +280,7 @@
   <footer class="security-footer" role="note">
     <div class="security-footer-inner">
       <span class="security-dot" aria-hidden="true"></span>
-      <p>管理台仅监听 <code>127.0.0.1</code>，经 SSH 隧道访问；邀请码明文只在生成时显示一次，库内仅存 <code>sha256</code>。</p>
+      <p>管理台仅监听 <code>127.0.0.1</code>，经 SSH 隧道访问；邀请码明文在管理员会话中按需展示，数据库保存 AES-256-GCM 密文，密钥只在服务器 <code>.env.local</code>。</p>
     </div>
   </footer>
 
@@ -292,8 +295,8 @@
 
     <div class="dialog-body" id="result-body">
       <div class="alert alert--warning alert--prominent" id="result-safety">
-        <strong>仅本次显示，关闭后无法找回</strong>
-        <p>列表接口永远不会返回明文。请立即复制全部或下载 CSV；数据库只保存 <code>sha256</code>。</p>
+        <strong>邀请码明文，仅在管理员会话中可见</strong>
+        <p>请只把邀请码发给授权对象。数据库保存的是 AES-256-GCM 密文，密钥只在服务器 <code>.env.local</code>；仍应避免截图或外发。</p>
       </div>
       <p class="result-meta" id="result-meta"></p>
       <div class="result-list-wrap">

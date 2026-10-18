@@ -12,6 +12,7 @@ import { randomBytes } from 'node:crypto'
 import { chmodSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { hashAdminPassword, base32Encode } from '../services/admin-auth.js'
+import { generateInviteCodeKey } from '../services/invite-crypto.js'
 
 const argv = process.argv.slice(2)
 const readArg = (name, fallback = '') => {
@@ -31,6 +32,8 @@ const password = randomBytes(18).toString('base64url')
 const passwordHash = await hashAdminPassword(password)
 const totpSecret = base32Encode(randomBytes(20))
 const jwtSecret = randomBytes(48).toString('base64url')
+// 邀请码明文加密密钥（AES-256-GCM）；数据库只存密文，此密钥仅写服务器 .env.local。
+const inviteCodeKey = generateInviteCodeKey()
 const port = readArg('port', '8791')
 
 const envBlock = [
@@ -39,6 +42,7 @@ const envBlock = [
   `ADMIN_PASSWORD_HASH=${passwordHash}`,
   `ADMIN_TOTP_SECRET=${totpSecret}`,
   `ADMIN_JWT_SECRET=${jwtSecret}`,
+  `ADMIN_CODE_KEY=${inviteCodeKey}`,
   `ADMIN_PORT=${port}`
 ].join('\n')
 

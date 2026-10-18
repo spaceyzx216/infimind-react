@@ -257,6 +257,7 @@ Vite 会把 `/api` 代理到 `LOCAL_SERVER_PORT`，前后端端口必须保持�
 | `ADMIN_PASSWORD_HASH` | 是 | — | `scrypt$N$r$p$salt$hash`，由 `npm run admin:init` 生成；不存明文密码 |
 | `ADMIN_TOTP_SECRET` | 是 | — | 管理员双因素 TOTP 种子（base32），与密码分开保管 |
 | `ADMIN_JWT_SECRET` | 是 | — | 至少 32 字节，管理台专用，不得与用户 `JWT_SECRET` 复用 |
+| `ADMIN_CODE_KEY` | 是 | — | 邀请码明文 AES-256-GCM 密钥（32 字节 base64url）；只存服务器 `.env.local`。缺省时管理台整体不启动 |
 | `ADMIN_PORT` | 否 | `8791` | 管理台监听端口；只绑定 `127.0.0.1`，不要放行安全组或加 nginx 反代 |
 | `ADMIN_SESSION_TTL_SECONDS` | 否 | `1800` | 管理令牌有效期（秒） |
 | `ADMIN_MAX_LOGIN_FAILURES` / `ADMIN_LOGIN_WINDOW_SECONDS` / `ADMIN_LOGIN_LOCK_SECONDS` | 否 | `5` / `600` / `900` | 登录失败窗口与锁定 |
@@ -536,6 +537,8 @@ v2工程验证命令：`node server/scripts/test-arbitration-staged.js`、`node 
 | `npm run test:interrupt` | 验证同对话任务串行约束、插队取消边界、迟到事件不覆盖结果、按 `taskId` 恢复与越权保护 |
 | `npm run test:contract-draft` | 验证合同起草任务适配、意图分流、草稿快照、恢复、重试、取消和兼容 SSE |
 | `npm run invite:create -- --count 5` | 生成 5 个一次性邀请码；明文只在本次命令输出 |
+| `npm run invite:key` | 生成/轮换 `ADMIN_CODE_KEY`（邀请码明文 AES-256-GCM 密钥）；轮换前先迁移旧密文 |
+| `npm run invite:backfill -- --codes <文件> [--dry-run]` | 用已知明文为历史邀请码补写密文，供管理台再次展示 |
 | `npm run admin:init -- --username ops --credentials-out <path>` | 生成/轮换运维管理员凭据与 `ADMIN_*` 环境变量块；凭据文件权限 600，输出不要外发 |
 | `npm run admin:open` | 一键建立 SSH 隧道（本地 18791 → 服务器 127.0.0.1:8791）并打开管理台；关闭终端即断开 |
 | `npm run test:admin` | 验证管理台认证/限流/发码/停用/审计、注册链路拒绝停用与过期邀请码、安全响应头与旧库迁移 |
@@ -612,7 +615,7 @@ curl https://your-domain.example/api/health
 
 - API Key 只保存在服务端 `.env.local`，浏览器不会读取模型密钥；
 - `.env.local`、构建目录、压缩包、业务 SQLite 数据库、SQLite WAL/SHM 和评测报告均已加入 `.gitignore`；
-- 密码使用 Node `crypto.scrypt` 加盐哈希；数据库只保存邀请码哈希和刷新令牌哈希，不保存对应明文；
+- 密码使用 Node `crypto.scrypt` 加盐哈希；刷新令牌只存哈希；邀请码同时保存 sha256 哈希与 AES-256-GCM 密文（密钥 `ADMIN_CODE_KEY` 仅在服务器 `.env.local`，管理台解密展示用），数据库/备份单独泄露不能还原明文；
 - 业务请求使用 15 分钟 HS256 JWT；随机刷新令牌只保存在 `HttpOnly`、`SameSite=Lax` Cookie，登录绝对期限为 7 天。JWT 仅在页面内存保存，刷新页面会自动恢复登录；
 - 点击退出会撤销刷新令牌并清空页面凭证，已签发 JWT 不设黑名单、到期前仍可使用；关闭网页不会主动退出；
 - 运维管理台单独监听 `127.0.0.1`，使用独立管理员密码 + TOTP + 独立 JWT 密钥，所有操作写审计；公开 `/api` 与 nginx 均不暴露管理路由，未配置 `ADMIN_*` 时不启动；
@@ -653,8 +656,9 @@ Host flylegal-admin
 
 ### 邀请码管理能力
 
-- 生成：数量 1～`ADMIN_MAX_INVITES_PER_REQUEST`（默认 200），可填批次标签、备注、过期时间；**明文只在生成响应里返回一次**，页面支持复制全部与 CSV 下载；数据库只存 sha256。
-- 列表：按状态（全部/未使用/已使用/已停用/已过期）与关键词（标签/备注/用户名/邮箱）检索，分页；列表永远只显示哈希前缀；已使用邀请码的「使用者」列会显示账号有效/已到期/已停用与到期时间（只读）。
+- 生成：数量 1～`ADMIN_MAX_INVITES_PER_REQUEST`（默认 200），可填批次标签、备注、过期时间；明文会存为 AES-256-GCM 密文，管理台列表可再次查看/复制（历史无密文码仍只显示哈希前缀），支持复制未使用邀请码与生成时 CSV 下载；分发时注意只发给授权对象。
+- 列表：按状态（全部/未使用/已使用/已停用/已过期）与关键词（标签/备注/用户名/邮箱）检索，分页；列表在管理员会话中显示邀请码明文与哈希前缀；已使用邀请码的「使用者」列会显示账号有效/已到期/已停用与到期时间（只读）。
+- 历史明文回填：`node server/scripts/backfill-invite-plaintext.js --codes <明文清单> [--dry-run]`（按 sha256 匹配旧行、写入密文；不新增/不改使用状态）。密钥由 `npm run invite:key` 生成；轮换 `ADMIN_CODE_KEY` 前必须先导出并重加密旧密文，否则旧码明文将无法解密。
 - 停用：只能停用未使用邀请码；已使用/已停用/不存在返回明确错误码。注册链路会拒绝停用或过期邀请码，并在同一条原子 UPDATE 内再次校验，避免并发穿透。
 - 统计与审计：邀请码总数/未使用/已使用/已停用/已过期；审计分页查询。
 - 注意：历史上已发放的 50 个邀请码在库内只有哈希，管理台只能看到哈希前缀与状态；明文仍以运维本机保存的 `邀请码状态.html` 为准。
