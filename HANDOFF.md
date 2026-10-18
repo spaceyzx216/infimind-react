@@ -689,3 +689,36 @@ npm run test:auth:client    # 浏览器侧鉴权客户端回归
 - 历史 50 个邀请码库内只有哈希，管理台只能显示哈希前缀与状态，明文仍以本机保存的 `邀请码状态.html` 为准。
 - Windows 双击入口与 PowerShell setup 脚本待 Windows 实机验证；`.ps1` 未在本机运行。
 - 服务器 `ecosystem.config.cjs` 的 `cwd` 仍是历史目录（PM2 实际元数据正确指向 `agent-api-v2`），本次未改；不要直接用该文件 `pm2 start`。
+
+## 账号生命周期：邀请码到期联动停用账号（2026-10-18）
+
+用户确认：邀请码设置了到期时间后，用它注册的账号也应在同一时间失效/停用；按推荐方案实现（注册时快照、到期只停用不删数据、管理台只读展示状态，不做账号管理页）。
+
+### 实现
+
+- `business-db.js`：`users` 增加 `expires_at`、`disabled_at`；旧库启动时自动加列；仅在首次加列时从原邀请码 `expires_at` 回填已有账号（避免每次启动覆盖运维手工续期）。
+- `auth-service.js`：注册成功时把邀请码到期时间快照写入 `users.expires_at`；登录在**密码校验通过后**检查账号状态：停用返回 403 `ACCOUNT_DISABLED`、到期返回 403 `ACCOUNT_EXPIRED`，并撤销该用户全部刷新令牌；`refresh` 与每次 JWT 鉴权同样拒绝（401，同一错误码），旧 access token 在下一次请求即被拦。
+- `middleware/auth.js`：账号到期/停用的错误码与文案透传给客户端，其余鉴权失败仍保持通用 401。
+- `admin-service.js` + `admin-ui/admin.js`：已使用邀请码的使用者信息增加账号状态（active/expired/disabled）与到期时间；管理台「使用者」列显示“账号到期：… / 账号已到期 / 账号已停用”，只读。
+- README 增加注册继承到期、到期后登录/刷新/API 拒绝与数据保留说明；已知边界补充“暂无账号续期/停用页面”。
+
+### 验证
+
+- `npm run test:auth`：新增到期/停用场景全部通过（注册快照、到期前可登录、到期后登录 403 `ACCOUNT_EXPIRED`、刷新/旧 access token 被拒、刷新令牌撤销、无过期码永久有效、人工停用 `ACCOUNT_DISABLED`）。
+- `npm run test:admin`：21 通过 / 0 失败（新增“已使用邀请码展示账号状态”与旧库 users 字段迁移/回填断言）。
+- `test:tasks`、`test:consolidation` 通过；`npm run lint` 0 errors / 104 warnings（既有基线）；`npm run build` 通过且前端入口哈希未变（无前端源码改动）。
+- 临时库 + 临时端口的浏览器 E2E：管理台展示“账号到期：…”；把账号到期时间改为过去后刷新显示“账号已到期”，该账号登录返回 403 `ACCOUNT_EXPIRED`，无 pageerror。
+
+### 部署与线上验证（2026-10-18 13:05）
+
+- 备份：`/www/backup/infimind-20261018-130513`（后端代码 tar、`.env.local`、nginx 配置、变更前哈希）。
+- 上传 7 个运行时文件并 SHA-256 校验通过；`pm2 reload infimind-server` + `pm2 save`，online；启动日志正常，管理台仍只监听 `127.0.0.1:8791`。
+- 业务库迁移后 `quick_check=ok`；`users` 列包含 `expires_at/disabled_at`；现有 6 个账号均无到期/停用（`expiring=0, disabled=0`），邀请码 50 条、已使用 6 条不变。
+- 服务器上 `test:auth` 与 `test:admin` 21/21 通过；公网 `/`、`/api/health` 200，匿名 `/api/labor/status` 401，管理台回环健康 200。
+
+### 边界
+
+- 到期/停用只禁止登录与 API 使用，**不删除**历史任务、合同、结果或上传记录；恢复账号需人工更新 `users.expires_at`/`users.disabled_at`（暂无账号管理页面）。
+- 快照语义：注册后修改邀请码到期时间不影响老账号。
+- 已在进行的 SSE 流不会在到期瞬间切断，下一轮请求会被拒绝。
+- 管理台只能看到账号状态，不能续期/停用账号（后续按需单独做用户管理）。

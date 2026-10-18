@@ -44,7 +44,9 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   password_salt TEXT NOT NULL,
   invite_code_id TEXT NOT NULL UNIQUE REFERENCES invite_codes(id),
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  expires_at TEXT,
+  disabled_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS auth_sessions (
@@ -159,6 +161,21 @@ export function createBusinessDatabase(filename = process.env.BUSINESS_DB_PATH |
   if (!inviteColumns.has('created_by')) database.exec("ALTER TABLE invite_codes ADD COLUMN created_by TEXT NOT NULL DEFAULT ''")
   if (!inviteColumns.has('expires_at')) database.exec('ALTER TABLE invite_codes ADD COLUMN expires_at TEXT')
   if (!inviteColumns.has('disabled_at')) database.exec('ALTER TABLE invite_codes ADD COLUMN disabled_at TEXT')
+  // 账号生命周期：到期时间在注册时继承邀请码快照；disabled_at 留给后续人工停用。
+  const userColumns = new Set(database.prepare('PRAGMA table_info(users)').all().map((column) => column.name))
+  const userExpiresIsNew = !userColumns.has('expires_at')
+  if (userExpiresIsNew) database.exec('ALTER TABLE users ADD COLUMN expires_at TEXT')
+  if (!userColumns.has('disabled_at')) database.exec('ALTER TABLE users ADD COLUMN disabled_at TEXT')
+  database.exec('CREATE INDEX IF NOT EXISTS idx_users_expires_at ON users(expires_at)')
+  // 只在首次加列时回填：已有账号按原邀请码到期时间补齐快照。
+  // 不能每次启动都跑，否则运维手工把某个账号改为“永久”后会被再次覆盖。
+  if (userExpiresIsNew) {
+    database.prepare(`UPDATE users SET expires_at = (
+        SELECT i.expires_at FROM invite_codes i WHERE i.id = users.invite_code_id
+      )
+      WHERE expires_at IS NULL
+        AND (SELECT i.expires_at FROM invite_codes i WHERE i.id = users.invite_code_id) IS NOT NULL`).run()
+  }
   database.exec('CREATE INDEX IF NOT EXISTS idx_tasks_thread ON tasks(user_id, product_id, thread_id, status)')
   // 同一用户同一对话同时只允许一个未终态的长任务，起草与审查一致。
   // 插队发送的前端串行是软约束，重复提交或重放请求会绕过它，

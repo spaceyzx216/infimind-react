@@ -1,4 +1,4 @@
-import { REFRESH_COOKIE } from '../services/auth-service.js'
+import { AuthError, REFRESH_COOKIE } from '../services/auth-service.js'
 
 const getCookie = (request, name) => {
   const header = request.get('Cookie') || ''
@@ -42,7 +42,11 @@ export function createRequireAuth(authService) {
       const user = await authService.getUserByAccessToken(accessTokenFromRequest(request))
       request.user = user
       return next()
-    } catch {
+    } catch (error) {
+      // 账号到期/停用要让客户端拿到明确原因（前端据此回登录页并提示运营），其余情况保持通用 401。
+      if (error instanceof AuthError && (error.code === 'ACCOUNT_EXPIRED' || error.code === 'ACCOUNT_DISABLED')) {
+        return response.status(401).json({ error: error.message, code: error.code })
+      }
       return response.status(401).json({ error: '请先登录', code: 'AUTH_REQUIRED' })
     }
   }

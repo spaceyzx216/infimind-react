@@ -8,6 +8,7 @@ import { createRequireAuth } from '../middleware/auth.js'
 import { createAuthRouter } from '../routes/auth.js'
 import { createBusinessDatabase } from '../services/business-db.js'
 import { createAuthService } from '../services/auth-service.js'
+import { generateInviteCode, hashInviteCode } from '../services/invite-code.js'
 
 const JWT_SECRET = 'test-only-jwt-secret-with-at-least-thirty-two-bytes'
 let clock = Date.UTC(2026, 0, 1, 0, 0, 0)
@@ -92,6 +93,9 @@ try {
   const userRow = database.prepare('SELECT password_hash, password_salt FROM users WHERE id = ?').get(user.id)
   assert.notEqual(userRow.password_hash, 'password-login-123')
   assert.notEqual(userRow.password_salt, 'password-login-123')
+  const userStateRow = database.prepare('SELECT expires_at, disabled_at FROM users WHERE id = ?').get(user.id)
+  assert.equal(userStateRow.expires_at, null, '无过期时间的邀请码注册的账号必须永久有效')
+  assert.equal(userStateRow.disabled_at, null)
   const inviteRow = database.prepare('SELECT code_hash FROM invite_codes WHERE used_by = ?').get(user.id)
   assert.notEqual(inviteRow.code_hash, loginCode)
   const refreshRow = database.prepare('SELECT token_hash FROM auth_refresh_tokens WHERE user_id = ?').get(user.id)
@@ -113,6 +117,48 @@ try {
   clock += authService.accessTokenTtlMs + 1000
   assert.equal((await request('/api/protected', { headers: bearer(loginPayload.accessToken) })).status, 401, 'JWT 到期后必须拒绝')
 
+  // 账号生命周期：注册时继承邀请码到期时间；到期/停用后登录、刷新和每次鉴权都拒绝，数据保留。
+  const expiringCode = generateInviteCode()
+  const expiringAt = new Date(clock + 60_000).toISOString()
+  database.prepare('INSERT INTO invite_codes (id, code_hash, created_at, expires_at) VALUES (?, ?, ?, ?)')
+    .run('expiring-invite', hashInviteCode(expiringCode), new Date(clock).toISOString(), expiringAt)
+  const expiringRegistration = await request('/api/auth/register', { method: 'POST', ...json({ inviteCode: expiringCode, username: '到期账号', email: 'expiring@example.com', password: 'password-expiring-123' }) })
+  assert.equal(expiringRegistration.status, 201)
+  const expiringUser = (await expiringRegistration.json()).user
+  assert.equal(database.prepare('SELECT expires_at FROM users WHERE id = ?').get(expiringUser.id).expires_at, expiringAt, '注册时必须快照邀请码到期时间')
+  const expiringLogin = await request('/api/auth/login', { method: 'POST', headers: { ...authHeaders, ...json({}).headers }, body: JSON.stringify({ identifier: 'expiring@example.com', password: 'password-expiring-123' }) })
+  assert.equal(expiringLogin.status, 200, '到期前必须可以登录')
+  const expiringCookie = cookieFrom(expiringLogin)
+  const expiringToken = (await expiringLogin.json()).accessToken
+
+  clock = Date.parse(expiringAt) + 1000
+  // 先验证刷新链路（此时 refresh token 尚未被登录失败逻辑撤销），再验证登录与旧 access token。
+  const expiredRefresh = await request('/api/auth/refresh', { method: 'POST', headers: { ...authHeaders, Cookie: expiringCookie } })
+  assert.equal(expiredRefresh.status, 401)
+  assert.equal((await expiredRefresh.json()).code, 'ACCOUNT_EXPIRED')
+  const expiredLogin = await request('/api/auth/login', { method: 'POST', headers: { ...authHeaders, ...json({}).headers }, body: JSON.stringify({ identifier: 'expiring@example.com', password: 'password-expiring-123' }) })
+  assert.equal(expiredLogin.status, 403)
+  assert.equal((await expiredLogin.json()).code, 'ACCOUNT_EXPIRED')
+  const expiredProtected = await request('/api/protected', { headers: bearer(expiringToken) })
+  assert.equal(expiredProtected.status, 401)
+  assert.equal((await expiredProtected.json()).code, 'ACCOUNT_EXPIRED', '到期账号的旧 access token 在下一次请求时也必须被拒绝')
+  assert.equal((await request('/api/auth/refresh', { method: 'POST', headers: { ...authHeaders, Cookie: expiringCookie } })).status, 401, '到期账号的刷新令牌必须被撤销')
+
+  const disabledCode = authService.createInviteCodes(1)[0]
+  const disabledRegistration = await request('/api/auth/register', { method: 'POST', ...json({ inviteCode: disabledCode, username: '停用账号', email: 'disabled-account@example.com', password: 'password-disabled-123' }) })
+  assert.equal(disabledRegistration.status, 201)
+  const disabledUser = (await disabledRegistration.json()).user
+  const disabledLoginBefore = await request('/api/auth/login', { method: 'POST', headers: { ...authHeaders, ...json({}).headers }, body: JSON.stringify({ identifier: 'disabled-account@example.com', password: 'password-disabled-123' }) })
+  assert.equal(disabledLoginBefore.status, 200)
+  const disabledToken = (await disabledLoginBefore.json()).accessToken
+  database.prepare('UPDATE users SET disabled_at = ? WHERE id = ?').run(new Date(clock).toISOString(), disabledUser.id)
+  const disabledLogin = await request('/api/auth/login', { method: 'POST', headers: { ...authHeaders, ...json({}).headers }, body: JSON.stringify({ identifier: 'disabled-account@example.com', password: 'password-disabled-123' }) })
+  assert.equal(disabledLogin.status, 403)
+  assert.equal((await disabledLogin.json()).code, 'ACCOUNT_DISABLED')
+  const disabledProtected = await request('/api/protected', { headers: bearer(disabledToken) })
+  assert.equal(disabledProtected.status, 401)
+  assert.equal((await disabledProtected.json()).code, 'ACCOUNT_DISABLED')
+
   const persistentDirectory = mkdtempSync(join(tmpdir(), 'fafee-auth-'))
   const persistentPath = join(persistentDirectory, 'auth.db')
   const persistentDatabase = createBusinessDatabase(persistentPath)
@@ -127,7 +173,7 @@ try {
   reopenedDatabase.close()
   rmSync(persistentDirectory, { recursive: true, force: true })
 
-  console.log('Authentication regression passed: invite race, JWT validation, refresh persistence boundary, logout and protected SSE are covered.')
+  console.log('Authentication regression passed: invite race, JWT validation, refresh persistence boundary, account expiry/disable, logout and protected SSE are covered.')
 } finally {
   await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
   database.close()

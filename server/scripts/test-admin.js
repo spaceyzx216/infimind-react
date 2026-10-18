@@ -176,6 +176,21 @@ await test('统计与过期过滤', () => {
   const expired = adminService.listInvites({ status: 'expired' })
   assert.equal(expired.items.some((item) => item.id === expiredId), true)
 })
+await test('已使用邀请码展示账号状态（有效 → 到期）', async () => {
+  const expiresAt = new Date(CLOCK + 60 * 60 * 1000).toISOString()
+  const batch = adminService.createInvites({ actor: 'ops', count: 1, label: '账号状态', expiresAt })
+  const registered = await authService.register({ inviteCode: batch.codes[0], username: '状态展示用户', email: 'account-state@example.com', password: 'password-12345' })
+  let used = adminService.listInvites({ status: 'used' })
+  let item = used.items.find((row) => row.id === batch.items[0].id)
+  assert.equal(item.usedBy.state, 'active')
+  assert.equal(item.usedBy.expiresAt, expiresAt)
+  assert.equal(item.usedBy.disabledAt, null)
+  database.prepare('UPDATE users SET expires_at = ? WHERE id = ?').run(new Date(CLOCK - 1000).toISOString(), registered.user.id)
+  used = adminService.listInvites({ status: 'used' })
+  item = used.items.find((row) => row.id === batch.items[0].id)
+  assert.equal(item.usedBy.state, 'expired')
+  assert.equal(item.usedBy.expiresAt, new Date(CLOCK - 1000).toISOString())
+})
 await test('过期时间必须晚于当前时间，单日上限生效', async () => {
   await expectCode(() => adminService.createInvites({ actor: 'ops', count: 1, expiresAt: new Date(CLOCK - 1000).toISOString() }), 'INVITE_EXPIRES_INVALID')
   const limited = createAdminService({ database, config: { ...config, maxInvitesPerDay: 4 }, now: () => CLOCK })
@@ -294,15 +309,31 @@ await test('缺少/非法 ADMIN_* 时 loadAdminConfig 返回 error', () => {
   assert.equal(valid.config.port, 8791)
   assert.equal(valid.config.sessionTtlSeconds, 1800)
 })
-await test('旧 invitation 表结构启动时自动补齐管理列', () => {
+await test('旧 invitation/users 表结构启动时自动补齐并回填账号到期时间', () => {
   const dir = mkdtempSync(join(tmpdir(), 'fafee-admin-migrate-'))
   const file = join(dir, 'legacy.db')
   const legacy = new Database(file)
-  legacy.exec(`CREATE TABLE invite_codes (id TEXT PRIMARY KEY, code_hash TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, used_at TEXT, used_by TEXT)`)
+  legacy.exec(`
+    CREATE TABLE invite_codes (id TEXT PRIMARY KEY, code_hash TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, used_at TEXT, used_by TEXT, expires_at TEXT);
+    CREATE TABLE users (
+      id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL, password_salt TEXT NOT NULL,
+      invite_code_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL
+    );
+  `)
+  legacy.prepare('INSERT INTO invite_codes (id, code_hash, created_at, expires_at) VALUES (?, ?, ?, ?)')
+    .run('legacy-invite', 'legacy-hash', '2026-01-01T00:00:00.000Z', '2026-12-31T00:00:00.000Z')
+  legacy.prepare('INSERT INTO users (id, username, email, password_hash, password_salt, invite_code_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run('legacy-user', 'legacy', 'legacy@example.com', 'hash', 'salt', 'legacy-invite', '2026-01-01T00:00:00.000Z')
   legacy.close()
   const migrated = createBusinessDatabase(file)
-  const columns = migrated.prepare('PRAGMA table_info(invite_codes)').all().map((column) => column.name)
-  assert.ok(columns.includes('label') && columns.includes('note') && columns.includes('created_by') && columns.includes('expires_at') && columns.includes('disabled_at'))
+  const inviteColumns = migrated.prepare('PRAGMA table_info(invite_codes)').all().map((column) => column.name)
+  assert.ok(inviteColumns.includes('label') && inviteColumns.includes('note') && inviteColumns.includes('created_by') && inviteColumns.includes('expires_at') && inviteColumns.includes('disabled_at'))
+  const userColumns = migrated.prepare('PRAGMA table_info(users)').all().map((column) => column.name)
+  assert.ok(userColumns.includes('expires_at') && userColumns.includes('disabled_at'))
+  const migratedUser = migrated.prepare('SELECT expires_at, disabled_at FROM users WHERE id = ?').get('legacy-user')
+  assert.equal(migratedUser.expires_at, '2026-12-31T00:00:00.000Z', '已有账号必须从原邀请码回填到期时间')
+  assert.equal(migratedUser.disabled_at, null)
   assert.ok(migrated.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'admin_audit_log'").get())
   migrated.close()
   rmSync(dir, { recursive: true, force: true })

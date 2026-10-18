@@ -59,6 +59,20 @@ const passwordMatches = async (password, row) => {
   return expected.length === actual.length && timingSafeEqual(expected, actual)
 }
 
+// 账号生命周期：邀请码到期时间在注册时写入 users.expires_at（快照）。
+// 到期/停用只影响该账号，不删除历史任务、合同与结果；如需恢复，改 users.expires_at/disabled_at 即可。
+const accountStateOf = (row, nowValue) => {
+  if (!row) return 'missing'
+  if (row.disabled_at) return 'disabled'
+  if (row.expires_at && Date.parse(row.expires_at) <= nowValue) return 'expired'
+  return 'active'
+}
+const assertAccountActive = (row, nowValue, status = 403) => {
+  const state = accountStateOf(row, nowValue)
+  if (state === 'disabled') throw new AuthError('ACCOUNT_DISABLED', '账号已停用，请联系运营', status)
+  if (state === 'expired') throw new AuthError('ACCOUNT_EXPIRED', '账号已到期，请联系运营', status)
+}
+
 const tokenHash = (token) => hashSecret(token)
 
 export function createAuthService(database, options = {}) {
@@ -74,11 +88,12 @@ export function createAuthService(database, options = {}) {
   const signingKey = new TextEncoder().encode(jwtSecret)
   const removeExpiredRefreshTokens = database.prepare('DELETE FROM auth_refresh_tokens WHERE expires_at <= ?')
   const findUserByRefreshToken = database.prepare(`
-    SELECT u.id, u.username, u.email
+    SELECT u.id, u.username, u.email, u.expires_at, u.disabled_at
     FROM auth_refresh_tokens t JOIN users u ON u.id = t.user_id
     WHERE t.token_hash = ? AND t.revoked_at IS NULL AND t.expires_at > ?
   `)
-  const findUserById = database.prepare('SELECT id, username, email FROM users WHERE id = ?')
+  const findUserById = database.prepare('SELECT id, username, email, expires_at, disabled_at FROM users WHERE id = ?')
+  const revokeUserRefreshTokens = database.prepare('UPDATE auth_refresh_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
 
   const registerUserTransaction = database.transaction(({ inviteCode, username, email, passwordHash, passwordSalt }) => {
     const invite = database.prepare('SELECT id, used_at, disabled_at, expires_at FROM invite_codes WHERE code_hash = ?').get(hashInviteCode(inviteCode))
@@ -88,9 +103,13 @@ export function createAuthService(database, options = {}) {
     if (invite.used_at) throw new AuthError('INVITE_USED', '该邀请码已使用')
     const userId = randomUUID()
     const createdAt = toIso(now())
+    // 到期时间在注册时从邀请码快照，之后修改邀请码不影响老账号。
+    const expiresAt = invite.expires_at && Number.isFinite(Date.parse(invite.expires_at))
+      ? new Date(invite.expires_at).toISOString()
+      : null
     try {
-      database.prepare('INSERT INTO users (id, username, email, password_hash, password_salt, invite_code_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(userId, username, email, passwordHash, passwordSalt, invite.id, createdAt)
+      database.prepare('INSERT INTO users (id, username, email, password_hash, password_salt, invite_code_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(userId, username, email, passwordHash, passwordSalt, invite.id, createdAt, expiresAt)
     } catch (error) {
       if (String(error?.code || '').startsWith('SQLITE_CONSTRAINT_UNIQUE')) throw new AuthError('ACCOUNT_EXISTS', '用户名或邮箱已注册', 409)
       throw error
@@ -120,7 +139,7 @@ export function createAuthService(database, options = {}) {
     if (!token) return null
     const nowValue = toIso(now())
     removeExpiredRefreshTokens.run(nowValue)
-    return publicUser(findUserByRefreshToken.get(tokenHash(token), nowValue))
+    return findUserByRefreshToken.get(tokenHash(token), nowValue) || null
   }).immediate
 
   const issueAccessToken = async (user) => {
@@ -147,26 +166,45 @@ export function createAuthService(database, options = {}) {
     },
     async login({ identifier, password }) {
       const input = validateLogin({ identifier, password })
-      const row = database.prepare('SELECT id, username, email, password_hash, password_salt FROM users WHERE username = ? COLLATE NOCASE OR email = ? COLLATE NOCASE').get(input.identifier, input.identifier.toLowerCase())
+      const row = database.prepare('SELECT id, username, email, password_hash, password_salt, expires_at, disabled_at FROM users WHERE username = ? COLLATE NOCASE OR email = ? COLLATE NOCASE').get(input.identifier, input.identifier.toLowerCase())
       if (!row || !(await passwordMatches(input.password, row))) throw new AuthError('LOGIN_INVALID', '用户名或邮箱、密码不匹配', 401)
+      // 先验密码再查状态，避免通过响应差异探测账号是否存在。
+      try {
+        assertAccountActive(row, now(), 403)
+      } catch (error) {
+        revokeUserRefreshTokens.run(toIso(now()), row.id)
+        throw error
+      }
       removeExpiredRefreshTokens.run(toIso(now()))
       const user = publicUser(row)
       const refresh = createRefreshToken(user.id)
       return { user, refreshToken: refresh.token, refreshTokenExpiresAt: refresh.expiresAt, ...(await issueAccessToken(user)) }
     },
     async refresh(refreshToken) {
-      const user = findRefreshUser(refreshToken)
-      if (!user) throw new AuthError('REFRESH_INVALID', '登录已过期，请重新登录', 401)
-      return { user, ...(await issueAccessToken(user)) }
+      const row = findRefreshUser(refreshToken)
+      if (!row) throw new AuthError('REFRESH_INVALID', '登录已过期，请重新登录', 401)
+      try {
+        assertAccountActive(row, now(), 401)
+      } catch (error) {
+        revokeUserRefreshTokens.run(toIso(now()), row.id)
+        throw error
+      }
+      return { user: publicUser(row), ...(await issueAccessToken(publicUser(row))) }
     },
     async getUserByAccessToken(accessToken) {
       if (!accessToken) throw new AuthError('ACCESS_TOKEN_MISSING', '请先登录', 401)
       try {
         const { payload } = await jwtVerify(accessToken, signingKey, { algorithms: ['HS256'], issuer, audience, currentDate: new Date(now()) })
         if (!payload.sub) throw new Error('JWT has no subject')
-        const user = publicUser(findUserById.get(payload.sub))
-        if (!user) throw new Error('JWT user no longer exists')
-        return user
+        const row = findUserById.get(payload.sub)
+        if (!row) throw new Error('JWT user no longer exists')
+        try {
+          assertAccountActive(row, now(), 401)
+        } catch (error) {
+          revokeUserRefreshTokens.run(toIso(now()), row.id)
+          throw error
+        }
+        return publicUser(row)
       } catch (error) {
         if (error instanceof AuthError) throw error
         throw new AuthError('ACCESS_TOKEN_INVALID', '登录状态已失效，请重新登录', 401)

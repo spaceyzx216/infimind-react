@@ -729,11 +729,15 @@
 
     let username = ''
     let email = ''
+    let accountState = ''
+    let accountExpiresAt = ''
     if (typeof usedBy === 'string') {
       username = usedBy
     } else if (typeof usedBy === 'object') {
       username = typeof usedBy.username === 'string' ? usedBy.username : ''
       email = typeof usedBy.email === 'string' ? usedBy.email : ''
+      accountState = typeof usedBy.state === 'string' ? usedBy.state : ''
+      accountExpiresAt = typeof usedBy.expiresAt === 'string' ? usedBy.expiresAt : ''
     }
     if (!username && !email) return make('span', 'muted', '—')
 
@@ -747,6 +751,19 @@
       const mail = make('span', 'subtext', email)
       mail.title = email
       wrapper.append(mail)
+    }
+    // 账号生命周期提示：邀请码到期会联动停用账号；无过期时间的账号不显示噪音。
+    const expiry = accountExpiresAt ? formatDateTime(accountExpiresAt) : ''
+    if (accountState === 'expired') {
+      const note = make('span', 'subtext account-note', expiry ? `账号已到期（${expiry}）` : '账号已到期')
+      note.title = '邀请码到期后账号已停用，历史数据仍保留'
+      wrapper.append(note)
+    } else if (accountState === 'disabled') {
+      wrapper.append(make('span', 'subtext account-note', '账号已停用'))
+    } else if (expiry) {
+      const note = make('span', 'subtext account-note', `账号到期：${expiry}`)
+      note.title = '到期后账号将无法登录，历史数据仍保留'
+      wrapper.append(note)
     }
     return wrapper
   }

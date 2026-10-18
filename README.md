@@ -359,7 +359,7 @@ npm run evaluate:knowledge-base
 | 方法 | 路径 | 类型 | 说明 |
 | --- | --- | --- | --- |
 | `GET` | `/api/health` | JSON | 服务健康检查 |
-| `POST` | `/api/auth/register` | JSON | 使用一次性邀请码注册用户名、邮箱和密码 |
+| `POST` | `/api/auth/register` | JSON | 使用一次性邀请码注册用户名、邮箱和密码；邀请码带过期时间时，该时间会快照为账号到期时间 |
 | `POST` | `/api/auth/login` | JSON | 使用用户名或邮箱登录，返回 15 分钟 JWT，并写入 7 天 HttpOnly 刷新 Cookie |
 | `POST` | `/api/auth/refresh` | JSON | 使用刷新 Cookie 换取新的 JWT，不延长 7 天绝对期限 |
 | `GET` | `/api/auth/me` | JSON | 使用 `Authorization: Bearer <JWT>` 查询当前登录用户 |
@@ -391,6 +391,7 @@ npm run evaluate:knowledge-base
 
 除健康检查和 `/api/auth/*` 外，所有 `/api` 接口都要求有效的 `Authorization: Bearer <JWT>`；未登录返回 `401`。
 运维管理台（`/admin/api/*`）**不属于**这套公开 API：它只监听 `127.0.0.1` 的独立端口，见「运维管理台（邀请码）」。
+账号生命周期：注册时如果邀请码设置了 `expires_at`，会写入 `users.expires_at`（快照）；到期后登录返回 403 `ACCOUNT_EXPIRED`，刷新与所有 API 鉴权返回 401 `ACCOUNT_EXPIRED`，旧刷新令牌会被撤销，历史任务和结果保留。`users.disabled_at` 为人工停用预留，行为相同（`ACCOUNT_DISABLED`）。未设置过期时间的邀请码注册的账号永久有效。
 `/api/auth/login`、`/api/auth/refresh`、`/api/auth/logout` 还要求 `X-Fafee-Auth: 1`，并拒绝未配置的跨站 Origin，避免浏览器跨站写入刷新 Cookie。
 工作台会为每个浏览器生成稳定的 `X-Client-ID` 请求头，并在请求体中携带
 `threadId`。前端按 `threadId` 隔离加载、阶段和错误状态，因此不同会话可以并行；
@@ -653,7 +654,7 @@ Host flylegal-admin
 ### 邀请码管理能力
 
 - 生成：数量 1～`ADMIN_MAX_INVITES_PER_REQUEST`（默认 200），可填批次标签、备注、过期时间；**明文只在生成响应里返回一次**，页面支持复制全部与 CSV 下载；数据库只存 sha256。
-- 列表：按状态（全部/未使用/已使用/已停用/已过期）与关键词（标签/备注/用户名/邮箱）检索，分页；列表永远只显示哈希前缀。
+- 列表：按状态（全部/未使用/已使用/已停用/已过期）与关键词（标签/备注/用户名/邮箱）检索，分页；列表永远只显示哈希前缀；已使用邀请码的「使用者」列会显示账号有效/已到期/已停用与到期时间（只读）。
 - 停用：只能停用未使用邀请码；已使用/已停用/不存在返回明确错误码。注册链路会拒绝停用或过期邀请码，并在同一条原子 UPDATE 内再次校验，避免并发穿透。
 - 统计与审计：邀请码总数/未使用/已使用/已停用/已过期；审计分页查询。
 - 注意：历史上已发放的 50 个邀请码在库内只有哈希，管理台只能看到哈希前缀与状态；明文仍以运维本机保存的 `邀请码状态.html` 为准。
@@ -695,6 +696,7 @@ pm2 reload infimind-server
 - 图片 OCR 依赖 `chi_sim` 语言数据，首次运行可能需要下载模型；
 - 浏览器历史恢复按工具区分：仲裁及劳动合同有服务端案件/会话接口，商业审查、起草按taskId恢复结果；兼容SSE与通用原型页不能据此视为完整云同步；
 - `contract-finalize` 是兼容接口，当前工作台采用审查后自动生成结构化修订稿；
+- 邀请码到期只停用账号的登录/接口使用，**不删除**历史任务、合同、结果与上传文件的保留记录；如需恢复账号，运维需手工更新 `users.expires_at`/`users.disabled_at`（暂无账号管理页面，属于后续范围）；
 - ESLint 已可运行，现有105条warning尚未消除；
 - Node 大版本切换后需要重新安装 `better-sqlite3` 等原生依赖。
 

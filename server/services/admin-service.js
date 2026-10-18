@@ -135,6 +135,15 @@ export function createAdminService({ database, config, now = () => Date.now() } 
     return { codes, items }
   }
 
+  // 管理台只读展示账号状态；真正的启停账号入口不在本期范围。
+  const usedByOf = (row, nowMs) => {
+    if (!row.username && !row.email) return null
+    const expiresAt = row.account_expires_at || null
+    const disabledAt = row.account_disabled_at || null
+    const state = disabledAt ? 'disabled' : (expiresAt && Date.parse(expiresAt) <= nowMs ? 'expired' : 'active')
+    return { username: row.username || '', email: row.email || '', expiresAt, disabledAt, state }
+  }
+
   const listInvites = ({ status = 'all', q = '', page = 1, pageSize = 20 } = {}) => {
     const normalizedStatus = INVITE_STATES.includes(String(status)) ? String(status) : 'all'
     const keyword = String(q || '').trim()
@@ -165,7 +174,8 @@ export function createAdminService({ database, config, now = () => Date.now() } 
     const rows = database.prepare(`
       SELECT i.id, substr(i.code_hash, 1, 12) AS hash_prefix, i.label, i.note,
              i.created_at, i.expires_at, i.disabled_at, i.used_at,
-             u.username, u.email
+             u.username, u.email,
+             u.expires_at AS account_expires_at, u.disabled_at AS account_disabled_at
       ${baseFrom} ${whereSql}
       ORDER BY i.created_at DESC, i.id DESC
       LIMIT ? OFFSET ?
@@ -181,7 +191,7 @@ export function createAdminService({ database, config, now = () => Date.now() } 
         expiresAt: row.expires_at || null,
         disabledAt: row.disabled_at || null,
         usedAt: row.used_at || null,
-        usedBy: row.username || row.email ? { username: row.username || '', email: row.email || '' } : null,
+        usedBy: usedByOf(row, nowMs),
         state: stateOf(row, nowMs)
       })),
       page: currentPage,
