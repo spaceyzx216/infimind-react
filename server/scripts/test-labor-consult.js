@@ -363,7 +363,7 @@ test('系统提示词注入当前日期', () => {
   const prompt = buildLaborConsultSystemPrompt({ now: new Date('2026-09-18T10:00:00+08:00'), laws })
   assert.ok(prompt.includes('2026-09-18'), '应注入当前日期')
   assert.ok(prompt.includes('法规时效基准'), '应含时效基准区块')
-  assert.ok(prompt.includes('不得凭记忆生成法规版本号'), '应含防幻觉约束')
+  assert.ok(/不得[^\n]*凭记忆/.test(prompt) && ['版本', '条号', '施行日期', '不得编造'].every((term) => prompt.includes(term)), '应保留版本、条号、施行日期及事实防幻觉约束')
   assert.ok(prompt.includes('不作胜诉承诺'), '应含绝对化表述边界')
 })
 test('劳动专项主题命中工作地点变更、医疗期、Offer 和竞业问题（英文大小写不敏感）', () => {

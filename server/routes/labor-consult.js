@@ -524,7 +524,7 @@ export async function runLaborConsult({
       maxTokens: MAX_OUTPUT_TOKENS,
       history,
       thinking: { type: 'enabled' },
-      reasoningEffort: mode === 'fast' ? 'high' : 'max'
+      reasoningEffort: mode === 'fast' ? 'low' : 'high'
     })) {
       ensure()
       if (chunk.reasoning) {
