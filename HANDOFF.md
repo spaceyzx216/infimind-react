@@ -648,3 +648,44 @@ npm run test:auth:client    # 浏览器侧鉴权客户端回归
 ```
 
 另：`1.txt` 首行原为「动争议答辩意见」，比 2.txt/5.txt 的「劳动仲裁答辩意见」少一个首字「劳」。经用户确认确为截断，已于 15:06 补正：`1.txt` 3928→3931 字节，除首行新增「劳」外其余 3928 字节逐字节一致（`cmp` 校验），md5 `2249f23a…`→`8cec32b8…`；修正后的文件已上传服务器并复核 md5 一致，装载合计 6094→6095 字（上限 20000 内），`test-arbitration-hardening.js` 与 `test-labor-arbitration.js` 在服务器上复跑通过。服务器上的原始版本留档于 `/www/backup/infimind-20261014-1504-refs/1.txt.before-fix`。`server/knowledge-base/labor-kb-labels.json` 依旧不上传（仅离线评测/调参脚本使用）。
+
+## 运维管理台（邀请码）与一键隧道（2026-10-18）
+
+用户确认采用方案 B（只监听回环 + SSH 隧道）、按需双击、邀请码明文只在生成时一次性展示、先做单管理员。目标：让运维能发码/停用/看使用状态，同时不把这把"额度钥匙"暴露到公网。
+
+### 实现
+
+- 新增独立管理面 `server/routes/admin.js`：`createAdminApp()` 只由 `server/index.js` 在 `127.0.0.1:${ADMIN_PORT:-8791}` 启动，不挂到公开 8790 应用，也没有 nginx 反代；`ADMIN_*` 未配置时日志 `[admin] disabled` 且不监听（fail closed）。
+- 管理认证 `server/services/admin-auth.js`：单管理员环境变量（scrypt 密码哈希 + TOTP + 独立 `ADMIN_JWT_SECRET`）；管理 JWT 30 分钟、仅浏览器内存、无 Cookie/无刷新令牌；登录失败限速锁定；用户名/密码/TOTP 均常数时间比较；不新增 npm 依赖（TOTP 用 node:crypto 实现）。
+- 业务层 `server/services/admin-service.js` + `server/services/invite-code.js`：发码/列表/停用/统计/审计；数据库只存邀请码 sha256；明文只在创建响应里返回一次；单次/单日发码上限；列表只回传哈希前缀。
+- 数据迁移 `server/services/business-db.js`：`invite_codes` 增加 `label/note/created_by/expires_at/disabled_at`（旧库启动时自动 ALTER）；新增 `admin_audit_log`，审计不记录明文码/密码/TOTP。
+- 注册链路 `server/services/auth-service.js`：邀请码停用（`INVITE_DISABLED`）、过期（`INVITE_EXPIRED`）、已使用分别拒绝；核销仍在同一条原子 UPDATE 内再次校验 `used_at/disabled_at/expires_at`，保留"一码一账号"并发安全。
+- 管理页 `server/admin-ui/`：原生 HTML/CSS/JS，严格 CSP（无内联 script/style、无外链、无 innerHTML 渲染）；登录/统计/生成（一次性明文+复制+CSV）/状态筛选/搜索/分页/停用/审计；令牌只存内存，刷新即重登；localStorage 只记用户名。
+- 运维便捷脚本 `scripts/ops/`：`admin-open.mjs`（跨平台 Node 入口：建隧道、等健康检查、开浏览器、关闭终端即断开）+ macOS `.command`、Windows `.cmd` 双击入口；`setup-admin-tunnel-key.sh/.ps1` 生成专用受限 key。`package.json` 增加 `admin:init`、`admin:open`、`test:admin`。
+- `.env.example`/README 增加管理台配置与访问说明；`.gitignore` 忽略 `邀请码状态.html`、管理员凭据文件。
+
+### 本地验证
+
+- `npm run test:admin`：20 通过 / 0 失败（邀请码哈希、TOTP RFC 向量、管理 JWT、发码/停用/审计、注册拒绝停用与过期、HTTP 401/限速 429、CSP/安全响应头、旧库迁移）。
+- `npm run test:auth`、`test:consolidation`、`test:tasks` 通过；`npm run lint` 0 errors / 104 warnings（既有基线，无新增）；`npm run build` 通过且入口哈希仍为 `index-CK8QOfXg.js`（本次无前端改动）。
+- 集成启动（临时库/临时端口）验证：公开 8790 健康 200、管理台 `127.0.0.1` 健康 200、登录→生成→列表（不泄露明文）→停用→审计全链路通过。
+- Playwright + 系统 Chrome 对真实后端（临时库）跑通：登录、统计、生成（一次性明文提示）、列表、停用、审计、退出回登录页；零 console error/pageerror、CSP 零违规。
+
+### 部署与线上验证（2026-10-18）
+
+- 备份：`/www/backup/infimind-20261018-115811`（后端代码 tar、`.env.local` 备份、nginx 配置、变更前文件哈希）。
+- 已上传 13 个文件并逐一 SHA-256 校验通过（管理端代码/UI/测试/`package.json`）；服务器 `.env.local` 追加 `ADMIN_*`（600，键名：USERNAME/PASSWORD_HASH/TOTP_SECRET/JWT_SECRET/PORT），其余变量未改。
+- `pm2 reload infimind-server` + `pm2 save`：online；启动日志出现 `[admin] 邀请码管理台 listening on http://127.0.0.1:8791`；`ss -lntp` 确认 8791 只绑 `127.0.0.1`，公开 8790 不变。
+- 线上公开面：`/`、`/api/health` 200；`/admin/api/health` 经 nginx 命中静态 SPA（HTML 200），**不是**管理 JSON，未暴露管理 API。
+- 服务器上 `test-admin` 20/20、`test:auth` 通过；本机经受限 SSH 隧道登录管理台：stats `total=50 / unused=44 / used=6`，列表不含明文，审计只有本次 `admin.login`（验证全程只读，未在线上创建/停用邀请码）。
+- 本机已配置专用受限 key（`~/.ssh/id_ed25519_fafee_admin`，授权行 `restrict,port-forwarding,permitopen="127.0.0.1:8791"`）与 `~/.ssh/config` 的 `flylegal-admin` 别名；`npm run admin:open` 一键建隧道并打开 `http://127.0.0.1:18791`，SIGINT/关闭窗口可正确回收 ssh 进程。macOS 路径已实测；Windows 脚本因本机无 PowerShell 未实跑，需在 Windows 上执行一次 `setup-admin-tunnel-key.ps1` 并追加输出到服务器 `authorized_keys`。
+- 初始管理员凭据：仅保存在本机 `~/.fafee-admin-credentials.txt`（600），未出现在聊天、仓库或服务器文件；TOTP 种子/密码只在该文件与密码管理器保管。服务器只存密码哈希与 TOTP 种子/JWT secret（`.env.local` 600）。
+
+### 边界与遗留
+
+- 单管理员、环境变量凭据：轮换 = `npm run admin:init` + 更新服务器 `.env.local` + reload；无多角色/操作审批。
+- 管理 JWT 无服务端撤销列表：退出只清浏览器内存，令牌到期（默认 30 分钟）前仍有效；如需要可再加会话表。
+- 登录限速是单进程内存态，PM2 单实例下有效；不要改 cluster。
+- 历史 50 个邀请码库内只有哈希，管理台只能显示哈希前缀与状态，明文仍以本机保存的 `邀请码状态.html` 为准。
+- Windows 双击入口与 PowerShell setup 脚本待 Windows 实机验证；`.ps1` 未在本机运行。
+- 服务器 `ecosystem.config.cjs` 的 `cwd` 仍是历史目录（PM2 实际元数据正确指向 `agent-api-v2`），本次未改；不要直接用该文件 `pm2 start`。

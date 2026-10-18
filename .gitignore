@@ -42,3 +42,8 @@ agent-api-v2/
 
 # Auto-generated HTML file
 index.html
+
+# 运维本地产物：邀请码看板/管理员凭据含明文，绝不入库或外发
+邀请码状态.html
+.fafee-admin-credentials*
+*admin-credentials*.txt

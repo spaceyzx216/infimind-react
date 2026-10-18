@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
 import { SignJWT, jwtVerify } from 'jose'
+import { generateInviteCode, hashInviteCode, normalizeInviteCode } from './invite-code.js'
 
 const scryptAsync = promisify(scrypt)
 const PASSWORD_KEY_LENGTH = 64
@@ -21,7 +22,6 @@ export class AuthError extends Error {
   }
 }
 
-const normalizeInviteCode = (value) => String(value || '').trim().toUpperCase()
 const hashSecret = (value) => createHash('sha256').update(value).digest('hex')
 const normalizeUsername = (value) => String(value || '').trim()
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase()
@@ -59,21 +59,6 @@ const passwordMatches = async (password, row) => {
   return expected.length === actual.length && timingSafeEqual(expected, actual)
 }
 
-// 邀请码格式：7 位大写字母+数字（如 UNC8MQU、I78383S）。36^7≈781 亿种，
-// 取模前先丢弃 >=252 的字节，避免字符分布偏差；唯一性仍由 invite_codes.code_hash 兜底。
-const INVITE_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-const INVITE_CODE_LENGTH = 7
-const serializeInviteCode = () => {
-  let code = ''
-  while (code.length < INVITE_CODE_LENGTH) {
-    for (const byte of randomBytes(INVITE_CODE_LENGTH * 2)) {
-      if (code.length >= INVITE_CODE_LENGTH) break
-      if (byte >= 252) continue
-      code += INVITE_CODE_ALPHABET[byte % INVITE_CODE_ALPHABET.length]
-    }
-  }
-  return code
-}
 const tokenHash = (token) => hashSecret(token)
 
 export function createAuthService(database, options = {}) {
@@ -96,8 +81,10 @@ export function createAuthService(database, options = {}) {
   const findUserById = database.prepare('SELECT id, username, email FROM users WHERE id = ?')
 
   const registerUserTransaction = database.transaction(({ inviteCode, username, email, passwordHash, passwordSalt }) => {
-    const invite = database.prepare('SELECT id, used_at FROM invite_codes WHERE code_hash = ?').get(hashSecret(inviteCode))
+    const invite = database.prepare('SELECT id, used_at, disabled_at, expires_at FROM invite_codes WHERE code_hash = ?').get(hashInviteCode(inviteCode))
     if (!invite) throw new AuthError('INVITE_INVALID', '邀请码无效或不存在')
+    if (invite.disabled_at) throw new AuthError('INVITE_DISABLED', '该邀请码已停用，请联系运营', 400)
+    if (invite.expires_at && Date.parse(invite.expires_at) <= now()) throw new AuthError('INVITE_EXPIRED', '该邀请码已过期，请联系运营', 400)
     if (invite.used_at) throw new AuthError('INVITE_USED', '该邀请码已使用')
     const userId = randomUUID()
     const createdAt = toIso(now())
@@ -108,8 +95,11 @@ export function createAuthService(database, options = {}) {
       if (String(error?.code || '').startsWith('SQLITE_CONSTRAINT_UNIQUE')) throw new AuthError('ACCOUNT_EXISTS', '用户名或邮箱已注册', 409)
       throw error
     }
-    const updated = database.prepare('UPDATE invite_codes SET used_at = ?, used_by = ? WHERE id = ? AND used_at IS NULL').run(createdAt, userId, invite.id)
-    if (updated.changes !== 1) throw new AuthError('INVITE_USED', '该邀请码已使用')
+    // 停用/过期/已使用必须在同一条原子 UPDATE 里再次判断，避免与运维操作并发时穿透。
+    const updated = database.prepare(`UPDATE invite_codes SET used_at = ?, used_by = ?
+      WHERE id = ? AND used_at IS NULL AND disabled_at IS NULL
+        AND (expires_at IS NULL OR expires_at > ?)`).run(createdAt, userId, invite.id, createdAt)
+    if (updated.changes !== 1) throw new AuthError('INVITE_USED', '该邀请码已使用或已失效')
     return { id: userId, username, email }
   }).immediate
 
@@ -191,9 +181,9 @@ export function createAuthService(database, options = {}) {
       return database.transaction((amount) => {
         const codes = []
         while (codes.length < amount) {
-          const code = serializeInviteCode()
+          const code = generateInviteCode()
           try {
-            insert.run(randomUUID(), hashSecret(code), toIso(now()))
+            insert.run(randomUUID(), hashInviteCode(code), toIso(now()))
             codes.push(code)
           } catch (error) {
             if (!String(error?.code || '').startsWith('SQLITE_CONSTRAINT_UNIQUE')) throw error

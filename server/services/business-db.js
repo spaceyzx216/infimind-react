@@ -12,8 +12,30 @@ CREATE TABLE IF NOT EXISTS invite_codes (
   code_hash TEXT NOT NULL UNIQUE,
   created_at TEXT NOT NULL,
   used_at TEXT,
-  used_by TEXT
+  used_by TEXT,
+  label TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT '',
+  expires_at TEXT,
+  disabled_at TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_invite_codes_created_at ON invite_codes(created_at DESC);
+
+-- 运维管理台审计：只记动作与目标，不记邀请码明文、密码或 TOTP。
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+  id TEXT PRIMARY KEY,
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target_id TEXT,
+  result TEXT NOT NULL DEFAULT 'ok',
+  detail_json TEXT NOT NULL DEFAULT '{}',
+  ip TEXT NOT NULL DEFAULT '',
+  user_agent TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_created_at ON admin_audit_log(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
@@ -130,6 +152,13 @@ export function createBusinessDatabase(filename = process.env.BUSINESS_DB_PATH |
   if (!taskColumns.has('input_json')) database.exec("ALTER TABLE tasks ADD COLUMN input_json TEXT NOT NULL DEFAULT '{}'")
   if (!taskColumns.has('current_stage')) database.exec('ALTER TABLE tasks ADD COLUMN current_stage TEXT')
   if (!taskColumns.has('stage_summary')) database.exec('ALTER TABLE tasks ADD COLUMN stage_summary TEXT')
+  // 邀请码管理台字段：旧库向前兼容。只新增可空/带默认值的列，不改动已有行。
+  const inviteColumns = new Set(database.prepare('PRAGMA table_info(invite_codes)').all().map((column) => column.name))
+  if (!inviteColumns.has('label')) database.exec("ALTER TABLE invite_codes ADD COLUMN label TEXT NOT NULL DEFAULT ''")
+  if (!inviteColumns.has('note')) database.exec("ALTER TABLE invite_codes ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+  if (!inviteColumns.has('created_by')) database.exec("ALTER TABLE invite_codes ADD COLUMN created_by TEXT NOT NULL DEFAULT ''")
+  if (!inviteColumns.has('expires_at')) database.exec('ALTER TABLE invite_codes ADD COLUMN expires_at TEXT')
+  if (!inviteColumns.has('disabled_at')) database.exec('ALTER TABLE invite_codes ADD COLUMN disabled_at TEXT')
   database.exec('CREATE INDEX IF NOT EXISTS idx_tasks_thread ON tasks(user_id, product_id, thread_id, status)')
   // 同一用户同一对话同时只允许一个未终态的长任务，起草与审查一致。
   // 插队发送的前端串行是软约束，重复提交或重放请求会绕过它，

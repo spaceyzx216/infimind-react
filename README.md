@@ -247,6 +247,21 @@ Vite 会把 `/api` 代理到 `LOCAL_SERVER_PORT`，前后端端口必须保持�
 | `TASK_UPLOAD_ROOT` | 否 | `系统临时目录/fafee-task-files` | 任务文件私有临时目录；生产建议配置独立私有挂载点 |
 | `TASK_FAKE_LLM` | 否 | `false` | 本地任务平台验收时启用确定性 Fake LLM，不调用真实模型 |
 
+### 运维管理台（邀请码）
+
+管理台是**独立监听在 `127.0.0.1` 的运维面**，不接入公开 API/nginx。缺少任一必填项时整体不启动（fail closed）。
+
+| 变量 | 必需 | 默认值 | 用途 |
+| --- | --- | --- | --- |
+| `ADMIN_USERNAME` | 是（启用管理台时） | — | 单管理员用户名 |
+| `ADMIN_PASSWORD_HASH` | 是 | — | `scrypt$N$r$p$salt$hash`，由 `npm run admin:init` 生成；不存明文密码 |
+| `ADMIN_TOTP_SECRET` | 是 | — | 管理员双因素 TOTP 种子（base32），与密码分开保管 |
+| `ADMIN_JWT_SECRET` | 是 | — | 至少 32 字节，管理台专用，不得与用户 `JWT_SECRET` 复用 |
+| `ADMIN_PORT` | 否 | `8791` | 管理台监听端口；只绑定 `127.0.0.1`，不要放行安全组或加 nginx 反代 |
+| `ADMIN_SESSION_TTL_SECONDS` | 否 | `1800` | 管理令牌有效期（秒） |
+| `ADMIN_MAX_LOGIN_FAILURES` / `ADMIN_LOGIN_WINDOW_SECONDS` / `ADMIN_LOGIN_LOCK_SECONDS` | 否 | `5` / `600` / `900` | 登录失败窗口与锁定 |
+| `ADMIN_MAX_INVITES_PER_REQUEST` / `ADMIN_MAX_INVITES_PER_DAY` | 否 | `200` / `1000` | 单次/单日发码上限 |
+
 ### 模型模式、阶段与重试的实际关系
 
 `llm-client` 未收到 `thinking.type=disabled` 时默认启用思考，未传强度时为 `high`。封装提供 `chatDetailed`（正文、完成原因及用量）、流式 `usage`、JSON 对象输出、取消和超时；默认建连请求及流空闲期限为60秒，调用方可传单次请求总期限，不能把所有阶段写成同一个预算。
@@ -375,6 +390,7 @@ npm run evaluate:knowledge-base
 | `POST` | `/api/contract-finalize` | SSE | 根据服务端会话中选中的 finding 生成修订稿；当前前端主流程未调用 |
 
 除健康检查和 `/api/auth/*` 外，所有 `/api` 接口都要求有效的 `Authorization: Bearer <JWT>`；未登录返回 `401`。
+运维管理台（`/admin/api/*`）**不属于**这套公开 API：它只监听 `127.0.0.1` 的独立端口，见「运维管理台（邀请码）」。
 `/api/auth/login`、`/api/auth/refresh`、`/api/auth/logout` 还要求 `X-Fafee-Auth: 1`，并拒绝未配置的跨站 Origin，避免浏览器跨站写入刷新 Cookie。
 工作台会为每个浏览器生成稳定的 `X-Client-ID` 请求头，并在请求体中携带
 `threadId`。前端按 `threadId` 隔离加载、阶段和错误状态，因此不同会话可以并行；
@@ -519,6 +535,9 @@ v2工程验证命令：`node server/scripts/test-arbitration-staged.js`、`node 
 | `npm run test:interrupt` | 验证同对话任务串行约束、插队取消边界、迟到事件不覆盖结果、按 `taskId` 恢复与越权保护 |
 | `npm run test:contract-draft` | 验证合同起草任务适配、意图分流、草稿快照、恢复、重试、取消和兼容 SSE |
 | `npm run invite:create -- --count 5` | 生成 5 个一次性邀请码；明文只在本次命令输出 |
+| `npm run admin:init -- --username ops --credentials-out <path>` | 生成/轮换运维管理员凭据与 `ADMIN_*` 环境变量块；凭据文件权限 600，输出不要外发 |
+| `npm run admin:open` | 一键建立 SSH 隧道（本地 18791 → 服务器 127.0.0.1:8791）并打开管理台；关闭终端即断开 |
+| `npm run test:admin` | 验证管理台认证/限流/发码/停用/审计、注册链路拒绝停用与过期邀请码、安全响应头与旧库迁移 |
 | `npm run import:templates -- <dir>` | 重建本地知识库，可选同步向量索引 |
 | `npm run evaluate:knowledge-base` | 运行知识库离线检索评测 |
 | `npm run check:kb` | 运行知识库基线门禁，检查口径和指标是否退化 |
@@ -595,12 +614,74 @@ curl https://your-domain.example/api/health
 - 密码使用 Node `crypto.scrypt` 加盐哈希；数据库只保存邀请码哈希和刷新令牌哈希，不保存对应明文；
 - 业务请求使用 15 分钟 HS256 JWT；随机刷新令牌只保存在 `HttpOnly`、`SameSite=Lax` Cookie，登录绝对期限为 7 天。JWT 仅在页面内存保存，刷新页面会自动恢复登录；
 - 点击退出会撤销刷新令牌并清空页面凭证，已签发 JWT 不设黑名单、到期前仍可使用；关闭网页不会主动退出；
+- 运维管理台单独监听 `127.0.0.1`，使用独立管理员密码 + TOTP + 独立 JWT 密钥，所有操作写审计；公开 `/api` 与 nginx 均不暴露管理路由，未配置 `ADMIN_*` 时不启动；
 - 上传时 Multer 暂存内存；任务接口随后将原件写入 `TASK_UPLOAD_ROOT` 私有目录，正文和任务结果保存在业务 SQLite，不作为知识库导入；
 - ReviewSession 仅保存在当前 Node 进程内存中，默认 2 小时过期；全局最多保留 500 个、每个用户最多保留 30 个，并按真实用户 ID 校验归属；
 - 知识库模板接口只返回元数据，不向浏览器暴露模板正文；
 - 生产环境不应直接暴露 Node 端口，应通过 HTTPS 反向代理访问；
 - 前端历史缓存使用浏览器 `localStorage`，按用户 ID 和工具 ID 隔离；仲裁页可从服务端恢复及同步完整会话，其它页面按各自任务接入程度恢复。在共享设备上使用后仍应清理浏览器数据；
 - 仓库中的合同素材可能包含业务内容，公开发布前应完成脱敏和授权确认。
+
+## 运维管理台（邀请码）
+
+### 访问边界
+
+- 管理台只由 `server/index.js` 在 `127.0.0.1:8791`（`ADMIN_PORT`）启动，**不在公开 8789/8790 应用上挂载任何 `/admin` 路由**；nginx 不反代、腾讯云安全组不放行。
+- 运维通过 SSH 本地端口转发访问：`ssh -N -L 18791:127.0.0.1:8791 flylegal-admin`，浏览器打开 `http://127.0.0.1:18791`。
+- 一键入口：macOS 双击 `scripts/ops/admin-open.command`；Windows 双击 `scripts/ops/admin-open.cmd`。脚本复用已有隧道、等待健康检查、自动打开浏览器；关闭终端窗口即断开。
+- `scripts/ops/setup-admin-tunnel-key.sh` / `.ps1` 生成专用受限 SSH key（`restrict,port-forwarding,permitopen="127.0.0.1:8791"`），即使 key 泄露也只能到达登录页，不能 shell。`~/.ssh/config` 里配置 Host 别名（不要把服务器 IP/密钥写进仓库）：
+
+```sshconfig
+Host flylegal-admin
+  HostName <服务器IP>
+  User root
+  IdentityFile ~/.ssh/id_ed25519_fafee_admin
+  BatchMode yes
+  ExitOnForwardFailure yes
+  ServerAliveInterval 30
+```
+
+- 未配置任何 `ADMIN_*` 时服务日志输出 `[admin] disabled: ...`，管理台不监听；公开业务不受影响。
+
+### 认证与审计
+
+- 单管理员：密码（scrypt 哈希）+ TOTP 双因素；管理令牌使用独立 `ADMIN_JWT_SECRET`/issuer/audience，默认 30 分钟，仅保存在浏览器内存（无 Cookie、无 localStorage、无刷新令牌）。
+- 登录失败限速与锁定；`/admin/api/*` 全部要求 `Authorization: Bearer`；管理 app 拒绝非回环来源，响应带严格 CSP、`X-Frame-Options: DENY`、`Cache-Control: no-store`。
+- 所有发码/停用/登录动作写入 `admin_audit_log`；审计只记动作、数量与目标 ID，不记邀请码明文、密码或 TOTP。
+- 通过隧道访问只代表“能打开登录页”；仍必须通过密码 + TOTP，会话过期或刷新页面后需重新登录。
+
+### 邀请码管理能力
+
+- 生成：数量 1～`ADMIN_MAX_INVITES_PER_REQUEST`（默认 200），可填批次标签、备注、过期时间；**明文只在生成响应里返回一次**，页面支持复制全部与 CSV 下载；数据库只存 sha256。
+- 列表：按状态（全部/未使用/已使用/已停用/已过期）与关键词（标签/备注/用户名/邮箱）检索，分页；列表永远只显示哈希前缀。
+- 停用：只能停用未使用邀请码；已使用/已停用/不存在返回明确错误码。注册链路会拒绝停用或过期邀请码，并在同一条原子 UPDATE 内再次校验，避免并发穿透。
+- 统计与审计：邀请码总数/未使用/已使用/已停用/已过期；审计分页查询。
+- 注意：历史上已发放的 50 个邀请码在库内只有哈希，管理台只能看到哈希前缀与状态；明文仍以运维本机保存的 `邀请码状态.html` 为准。
+
+### 凭据初始化与轮换
+
+```bash
+# 在运维机器执行；生成密码、TOTP 种子、ADMIN_* 环境变量块
+npm run admin:init -- --username ops --credentials-out ~/.fafee-admin-credentials.txt
+# 把输出的 ADMIN_* 块写入服务器 .env.local（600），然后
+pm2 reload infimind-server
+```
+
+凭据文件含明文密码与 TOTP 种子，导入密码管理器后删除；`ADMIN_JWT_SECRET` 与 `ADMIN_TOTP_SECRET` 只存在于服务器 `.env.local`。轮换 = 重新执行 `admin:init` + 更新 `.env.local` + reload，旧管理令牌全部失效。
+
+### 管理台 API（仅回环）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/admin/api/health` | 健康检查（隧道脚本使用） |
+| `POST` | `/admin/api/login` | `{username,password,totp}` → 30 分钟管理令牌 |
+| `GET` | `/admin/api/invites` | 列表（`status`/`q`/`page`/`pageSize`） |
+| `POST` | `/admin/api/invites` | 发码，明文仅本次返回 |
+| `POST` | `/admin/api/invites/:id/disable` | 停用未使用邀请码 |
+| `GET` | `/admin/api/stats` | 统计 |
+| `GET` | `/admin/api/audit` | 审计分页 |
+
+`npm run test:admin` 覆盖认证、限流、发码/停用、审计、注册拒绝、CSP/响应头与旧库迁移。
 
 ## 已知边界
 

@@ -6,6 +6,8 @@ import { fileURLToPath } from 'url'
 import contractRewriteRouter from './routes/contract-rewrite.js'
 import laborConsultRouter, { bootstrapLaborKnowledge } from './routes/labor-consult.js'
 import { createAuthRouter } from './routes/auth.js'
+import { createAdminApp } from './routes/admin.js'
+import { loadAdminConfig } from './services/admin-auth.js'
 import { createRequireAuth } from './middleware/auth.js'
 import { createAuthService } from './services/auth-service.js'
 import { initialize, loadTemplates } from './services/knowledge-base.js'
@@ -30,6 +32,8 @@ app.get('/api/health', (req, res) => {
 
 const { businessDatabase, taskService, taskFileStore, taskQueue } = createTaskRuntime()
 const authService = createAuthService(businessDatabase)
+const adminConfigResult = loadAdminConfig(process.env)
+let adminServer = null
 
 // 认证接口公开；其余 API 在进入业务路由前统一校验 Bearer JWT。
 app.use('/api/auth', createAuthRouter(authService))
@@ -110,6 +114,25 @@ async function bootstrap() {
     console.warn('[server] Labor vector index status unavailable:', error.message)
   }
 
+  // 运维管理台：只监听回环地址，绝不挂到公开 8790 应用；未配置 ADMIN_* 时整体不启动（fail closed）。
+  if (adminConfigResult.config) {
+    try {
+      const adminApp = createAdminApp({ database: businessDatabase, config: adminConfigResult.config })
+      adminServer = adminApp.listen(adminConfigResult.config.port, '127.0.0.1', () => {
+        console.log(`[admin] 邀请码管理台 listening on http://127.0.0.1:${adminConfigResult.config.port}`)
+      })
+      adminServer.on('error', (error) => {
+        console.warn('[admin] 管理台启动失败，未对外提供服务:', error.message)
+        adminServer = null
+      })
+    } catch (error) {
+      console.warn('[admin] 管理台启动失败，未对外提供服务:', error.message)
+      adminServer = null
+    }
+  } else {
+    console.log(`[admin] disabled: ${adminConfigResult.error}`)
+  }
+
   const server = app.listen(PORT, () => {
     console.log(`[server] Contract rewrite local engine listening on http://localhost:${PORT}`)
     console.log(`[server] API endpoint: POST http://localhost:${PORT}/api/contract-rewrite`)
@@ -119,6 +142,7 @@ async function bootstrap() {
 
   server.on('close', async () => {
     clearInterval(cleanupTimer)
+    adminServer?.close()
     await taskQueue.close().catch(() => {})
     businessDatabase.close()
   })

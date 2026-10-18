@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="color-scheme" content="light" />
+  <meta name="theme-color" content="#f4f1ec" />
+  <title>法飞飞邀请码管理台</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="./admin.css" />
+  <script src="./admin.js" defer></script>
+</head>
+<body>
+  <noscript>
+    <p class="noscript-banner">本管理台需要启用 JavaScript 才能使用。</p>
+  </noscript>
+
+  <section class="login-view" id="login-view" aria-labelledby="login-title">
+    <div class="login-card">
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true">法</span>
+        <div class="brand-text">
+          <p class="brand-kicker">法飞飞 AI · 内部运维</p>
+          <h1 id="login-title">邀请码管理台</h1>
+        </div>
+      </div>
+
+      <p class="login-lede">仅限运维人员使用。管理令牌只保存在本页内存中，刷新页面后需要重新登录。</p>
+
+      <p class="alert alert--info" id="login-notice" role="status" hidden></p>
+
+      <form class="form-stack" id="login-form" method="post" novalidate autocomplete="off">
+        <div class="field">
+          <label for="login-username">用户名</label>
+          <input id="login-username" name="username" type="text" autocomplete="username" maxlength="64" spellcheck="false" required />
+        </div>
+
+        <div class="field">
+          <div class="field-label">
+            <label for="login-password">密码</label>
+            <span class="field-hint">不保存在浏览器</span>
+          </div>
+          <input id="login-password" name="password" type="password" autocomplete="off" maxlength="128" required />
+        </div>
+
+        <div class="field">
+          <div class="field-label">
+            <label for="login-totp">动态验证码</label>
+            <span class="field-hint">6 位数字，每 30 秒更新</span>
+          </div>
+          <input id="login-totp" class="totp-input" name="totp" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="000000" required />
+        </div>
+
+        <div class="remember-row">
+          <label class="checkbox-label" for="remember-username">
+            <input id="remember-username" type="checkbox" checked />
+            <span>记住用户名</span>
+          </label>
+          <span class="remember-hint">只保存用户名，不保存密码与验证码</span>
+        </div>
+
+        <p class="alert alert--error" id="login-error" role="alert" hidden></p>
+
+        <button class="btn btn--primary btn--block" id="login-submit" type="submit">登录管理台</button>
+      </form>
+
+      <div class="login-security">
+        <span class="security-pill">127.0.0.1</span>
+        <p>管理服务只监听回环地址，请通过 SSH 隧道访问；请勿在公共电脑上保持登录状态。</p>
+      </div>
+    </div>
+    <p class="login-footnote">法飞飞 AI · 商业合同与劳动用工工具 · 运维内部系统</p>
+  </section>
+
+  <div class="app-shell" id="app-view" hidden>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true">法</span>
+          <div class="brand-text">
+            <p class="brand-kicker">法飞飞 AI · 内部运维</p>
+            <h1 class="app-title" id="app-title" tabindex="-1">邀请码管理台</h1>
+          </div>
+        </div>
+
+        <div class="topbar-tools">
+          <div class="session-facts">
+            <div class="session-fact">
+              <span>当前用户</span>
+              <strong id="current-user">—</strong>
+            </div>
+            <div class="session-fact">
+              <span>会话剩余</span>
+              <strong id="session-remaining" title="登录会话剩余时间">—</strong>
+            </div>
+          </div>
+          <button class="btn btn--ghost btn--sm" id="logout-button" type="button">退出</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="stats-section" aria-labelledby="stats-title">
+        <div class="section-heading">
+          <div>
+            <h2 id="stats-title">数据概览</h2>
+            <p>邀请码总数与状态分布</p>
+          </div>
+          <button class="btn btn--ghost btn--sm" id="stats-refresh" type="button">刷新</button>
+        </div>
+        <div class="stats-grid">
+          <article class="stat-card stat-card--total">
+            <span class="stat-label">总数</span>
+            <strong class="stat-value" id="stat-total">—</strong>
+          </article>
+          <article class="stat-card stat-card--unused">
+            <span class="stat-label">未使用</span>
+            <strong class="stat-value" id="stat-unused">—</strong>
+          </article>
+          <article class="stat-card stat-card--used">
+            <span class="stat-label">已使用</span>
+            <strong class="stat-value" id="stat-used">—</strong>
+          </article>
+          <article class="stat-card stat-card--disabled">
+            <span class="stat-label">已停用</span>
+            <strong class="stat-value" id="stat-disabled">—</strong>
+          </article>
+          <article class="stat-card stat-card--expired">
+            <span class="stat-label">已过期</span>
+            <strong class="stat-value" id="stat-expired">—</strong>
+          </article>
+        </div>
+        <p class="alert alert--error" id="stats-error" role="status" hidden></p>
+      </section>
+
+      <section class="panel create-panel" aria-labelledby="create-title">
+        <div class="panel-heading">
+          <div>
+            <h2 id="create-title">生成邀请码</h2>
+            <p>一次可生成 1–200 个，明文只在结果面板中显示一次。</p>
+          </div>
+          <span class="tag tag--warning">仅本次显示</span>
+        </div>
+
+        <form class="create-form" id="create-form" method="post" novalidate>
+          <div class="create-grid">
+            <div class="field">
+              <label for="create-count">数量 <span class="field-hint">1–200</span></label>
+              <input id="create-count" name="count" type="number" min="1" max="200" step="1" value="1" inputmode="numeric" required />
+            </div>
+
+            <div class="field">
+              <label for="create-label">标签 <span class="field-hint">批次 / 渠道</span></label>
+              <input id="create-label" name="label" type="text" maxlength="80" placeholder="例如：10 月律所渠道" spellcheck="false" />
+            </div>
+
+            <div class="field">
+              <label for="create-expiry">过期时间 <span class="field-hint">可空</span></label>
+              <input id="create-expiry" name="expiresAt" type="datetime-local" />
+            </div>
+
+            <div class="field">
+              <label for="create-note">备注 <span class="field-hint">可空，最多 500 字</span></label>
+              <textarea id="create-note" name="note" rows="2" maxlength="500" placeholder="仅内部可见"></textarea>
+            </div>
+          </div>
+
+          <p class="alert alert--error" id="create-error" role="alert" hidden></p>
+
+          <div class="create-actions">
+            <p class="create-warning"><strong>保存提醒：</strong>生成成功后请立即复制或下载 CSV，关闭结果面板后无法找回明文。</p>
+            <button class="btn btn--primary" id="create-submit" type="submit">生成邀请码</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel invites-panel" aria-labelledby="invites-title">
+        <div class="panel-heading">
+          <div>
+            <h2 id="invites-title">邀请码列表</h2>
+            <p id="invites-summary">正在加载…</p>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <div class="filter-group" id="status-filters" role="group" aria-label="按状态筛选">
+            <button class="filter-chip is-active" type="button" data-status="all" aria-pressed="true">全部</button>
+            <button class="filter-chip" type="button" data-status="unused" aria-pressed="false">未使用</button>
+            <button class="filter-chip" type="button" data-status="used" aria-pressed="false">已使用</button>
+            <button class="filter-chip" type="button" data-status="disabled" aria-pressed="false">已停用</button>
+            <button class="filter-chip" type="button" data-status="expired" aria-pressed="false">已过期</button>
+          </div>
+
+          <div class="search-field">
+            <label class="visually-hidden" for="invite-search">搜索邀请码</label>
+            <input id="invite-search" type="search" placeholder="搜索标签、备注或使用者" autocomplete="off" spellcheck="false" />
+          </div>
+        </div>
+
+        <p class="alert alert--success panel-alert" id="invites-notice" role="status" hidden></p>
+
+        <div class="table-wrap" id="invite-table-wrap" role="region" aria-label="邀请码列表" tabindex="0">
+          <table class="data-table invite-table">
+            <caption class="visually-hidden">邀请码列表</caption>
+            <thead>
+              <tr>
+                <th scope="col" class="col-index">序号</th>
+                <th scope="col">哈希前缀</th>
+                <th scope="col">标签</th>
+                <th scope="col">备注</th>
+                <th scope="col">状态</th>
+                <th scope="col">创建时间</th>
+                <th scope="col">过期时间</th>
+                <th scope="col">使用时间</th>
+                <th scope="col">使用者</th>
+                <th scope="col" class="col-actions">操作</th>
+              </tr>
+            </thead>
+            <tbody id="invites-body">
+              <tr>
+                <td class="table-state" colspan="10">正在加载邀请码…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pagination">
+          <p id="invites-page-info">—</p>
+          <div class="pagination-buttons">
+            <button class="btn btn--ghost btn--sm" id="invites-prev" type="button" disabled>上一页</button>
+            <button class="btn btn--ghost btn--sm" id="invites-next" type="button" disabled>下一页</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel audit-panel" aria-labelledby="audit-title">
+        <div class="panel-heading panel-heading--row">
+          <div>
+            <h2 id="audit-title">审计日志</h2>
+            <p>最近的管理操作，按时间倒序排列</p>
+          </div>
+          <button class="btn btn--ghost btn--sm" id="audit-refresh" type="button">刷新</button>
+        </div>
+
+        <div class="table-wrap" id="audit-table-wrap" role="region" aria-label="审计日志" tabindex="0">
+          <table class="data-table audit-table">
+            <caption class="visually-hidden">审计日志</caption>
+            <thead>
+              <tr>
+                <th scope="col">时间</th>
+                <th scope="col">动作</th>
+                <th scope="col">目标</th>
+                <th scope="col">结果</th>
+                <th scope="col">详情</th>
+              </tr>
+            </thead>
+            <tbody id="audit-body">
+              <tr>
+                <td class="table-state" colspan="5">正在加载审计日志…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pagination">
+          <p id="audit-page-info">—</p>
+          <div class="pagination-buttons">
+            <button class="btn btn--ghost btn--sm" id="audit-prev" type="button" disabled>上一页</button>
+            <button class="btn btn--ghost btn--sm" id="audit-next" type="button" disabled>下一页</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer class="security-footer" role="note">
+    <div class="security-footer-inner">
+      <span class="security-dot" aria-hidden="true"></span>
+      <p>管理台仅监听 <code>127.0.0.1</code>，经 SSH 隧道访问；邀请码明文只在生成时显示一次，库内仅存 <code>sha256</code>。</p>
+    </div>
+  </footer>
+
+  <dialog class="result-dialog" id="result-dialog" aria-labelledby="result-title" aria-describedby="result-safety">
+    <div class="dialog-head">
+      <div>
+        <p class="dialog-kicker">生成成功</p>
+        <h2 id="result-title">本轮邀请码明文</h2>
+      </div>
+      <button class="icon-button" id="result-close-top" type="button" aria-label="关闭结果面板">×</button>
+    </div>
+
+    <div class="dialog-body" id="result-body">
+      <div class="alert alert--warning alert--prominent" id="result-safety">
+        <strong>仅本次显示，关闭后无法找回</strong>
+        <p>列表接口永远不会返回明文。请立即复制全部或下载 CSV；数据库只保存 <code>sha256</code>。</p>
+      </div>
+      <p class="result-meta" id="result-meta"></p>
+      <div class="result-list-wrap">
+        <ol class="result-list" id="result-codes"></ol>
+      </div>
+      <p class="result-status" id="result-status" role="status" aria-live="polite"></p>
+    </div>
+
+    <div class="dialog-actions">
+      <button class="btn btn--primary" id="result-copy" type="button" disabled>复制全部</button>
+      <button class="btn btn--secondary" id="result-download" type="button" disabled>下载 CSV</button>
+      <button class="btn btn--ghost" id="result-close" type="button">关闭并清除</button>
+    </div>
+  </dialog>
+</body>
+</html>
